@@ -1,6 +1,6 @@
 import { Env } from './types';
 import { exchangeCodeForToken, fetchWakaTimeUser, fetchPhotoData } from './wakatime';
-import { createOrUpdateUser, getLeaderboard, getWeeklyData, getAllUsers, deleteUser, banUser, unbanUser, getUserById, getLastSyncTime, getUserTooltipStats, getCompareStats, upsertUserPhoto, getCurrentSeason, getSeasonHistory, resetSeason, getUserSeasonHistory, getUserCard, getAllUserCards, getSeasonStandings, getRankOneStats, getUserDailyHistory, invalidateCardCache, pruneFetchLog, CardScope } from './database';
+import { createOrUpdateUser, getLeaderboard, getWeeklyData, getAllUsers, deleteUser, banUser, unbanUser, getUserById, getLastSyncTime, getUserTooltipStats, getCompareStats, upsertUserPhoto, getCurrentSeason, getSeasonHistory, resetSeason, getUserSeasonHistory, getUserCard, getAllUserCards, getSeasonStandings, getRankOneStats, getUserDailyHistory, invalidateCardCache, pruneFetchLog, isD1BudgetError, checkD1Budget, markD1BudgetExhausted, D1_BUDGET_EXHAUSTED_MESSAGE, CardScope } from './database';
 import { createSession, verifySession, deleteSession, extractSessionId } from './session';
 import { fetchDataForAllUsers, fetchTodayDataForUser, fetchWeekDataForUser, fetchTodayDataForAllUsers, fetchWeekDataForAllUsers, fetchPhotosForAllUsers } from './fetcher';
 import { getProfileData } from './profile';
@@ -93,9 +93,19 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       (async () => {
-        await fetchDataForAllUsers(env);
-        await invalidateCardCache(env);
-        await pruneFetchLog(env);
+        try {
+          const budgetMsg = await checkD1Budget(env);
+          if (budgetMsg) {
+            console.error('Scheduled sync skipped:', budgetMsg);
+            return;
+          }
+          await fetchDataForAllUsers(env);
+          await invalidateCardCache(env);
+          await pruneFetchLog(env);
+        } catch (error: any) {
+          if (isD1BudgetError(error)) await markD1BudgetExhausted(env);
+          console.error('Scheduled sync failed:', error?.message || error);
+        }
       })()
     );
   },
@@ -202,6 +212,7 @@ export default {
           return Response.redirect(redirectUrl.toString(), 302);
         } catch (error: any) {
           console.error('OAuth callback error:', error);
+          if (isD1BudgetError(error)) await markD1BudgetExhausted(env);
           // Redirect to frontend with error
           const redirectUrl = new URL(env.FRONTEND_URL || 'https://wakalead.pages.dev');
           redirectUrl.pathname = '/login';
@@ -426,6 +437,10 @@ export default {
         // week re-sync costs ~1k D1 writes plus a WakaTime storm per user,
         // so at most one run per window no matter how often Sync is clicked.
         try {
+          const budgetMsg = await checkD1Budget(env);
+          if (budgetMsg) {
+            return jsonResponse({ success: false, error: budgetMsg }, 503);
+          }
           const now = Date.now();
           const last = await env.SESSIONS.get('refresh_all_at');
           if (last && now - Number(last) < REFRESH_ALL_COOLDOWN_MS) {
@@ -453,6 +468,10 @@ export default {
             },
           });
         } catch (error: any) {
+          if (isD1BudgetError(error)) {
+            await markD1BudgetExhausted(env);
+            return jsonResponse({ success: false, error: D1_BUDGET_EXHAUSTED_MESSAGE }, 503);
+          }
           return errorResponse('Error refreshing data: ' + error.message, 500);
         }
       }
@@ -568,10 +587,22 @@ export default {
           if (dateParam && !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
             return errorResponse('Invalid date, expected YYYY-MM-DD', 400);
           }
-          const useToday = url.searchParams.get('today') === 'true';
-          await fetchDataForAllUsers(env, useToday, dateParam || undefined);
-          await invalidateCardCache(env);
-          return jsonResponse({ success: true, message: `Data fetch initiated for ${dateParam || (useToday ? 'today' : 'yesterday')}` });
+          try {
+            const budgetMsg = await checkD1Budget(env);
+            if (budgetMsg) {
+              return jsonResponse({ success: false, error: budgetMsg }, 503);
+            }
+            const useToday = url.searchParams.get('today') === 'true';
+            await fetchDataForAllUsers(env, useToday, dateParam || undefined);
+            await invalidateCardCache(env);
+            return jsonResponse({ success: true, message: `Data fetch initiated for ${dateParam || (useToday ? 'today' : 'yesterday')}` });
+          } catch (error: any) {
+            if (isD1BudgetError(error)) {
+              await markD1BudgetExhausted(env);
+              return jsonResponse({ success: false, error: D1_BUDGET_EXHAUSTED_MESSAGE }, 503);
+            }
+            throw error;
+          }
         }
 
         if (path === '/api/admin/season' && request.method === 'GET') {
@@ -586,9 +617,21 @@ export default {
           // Archives daily_stats/fetch_log/breakdowns/leaderboard_history
           // under a "_season_N" suffix and starts fresh. Users, photos, and
           // each user's real WakaTime lifetime total are left untouched.
-          const result = await resetSeason(env, user.id);
-          await invalidateCardCache(env);
-          return jsonResponse({ success: true, ...result });
+          try {
+            const budgetMsg = await checkD1Budget(env);
+            if (budgetMsg) {
+              return jsonResponse({ success: false, error: budgetMsg }, 503);
+            }
+            const result = await resetSeason(env, user.id);
+            await invalidateCardCache(env);
+            return jsonResponse({ success: true, ...result });
+          } catch (error: any) {
+            if (isD1BudgetError(error)) {
+              await markD1BudgetExhausted(env);
+              return jsonResponse({ success: false, error: D1_BUDGET_EXHAUSTED_MESSAGE }, 503);
+            }
+            throw error;
+          }
         }
       }
 

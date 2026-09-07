@@ -336,6 +336,42 @@ export async function logFetch(
   `).bind(userId, fetchType, fetchDate, status, errorMessage || null, Date.now()).run();
 }
 
+/** KV flag set while today's D1 free-tier budget is exhausted. */
+export const D1_BUDGET_EXHAUSTED_KEY = 'd1_budget_exhausted';
+
+/** User-facing message when syncs can't run because the DB budget is gone. */
+export const D1_BUDGET_EXHAUSTED_MESSAGE =
+  'Database daily budget exhausted - syncs resume after midnight UTC';
+
+/** True when a D1 error means the free-tier daily budget ran out (not a bug). */
+export function isD1BudgetError(error: any): boolean {
+  const msg = String((error as Error)?.message ?? error ?? '');
+  return /exceeded.*daily row (read|write) limit/i.test(msg);
+}
+
+/**
+ * Fail fast when we already know today's D1 budget is gone (flag set by a
+ * previous quota error, auto-expires at UTC midnight when Cloudflare resets
+ * free quotas). Returns the friendly message, or null when syncing may
+ * proceed. KV-only - costs zero D1 rows, which is the point.
+ */
+export async function checkD1Budget(env: Env): Promise<string | null> {
+  const flag = await env.SESSIONS.get(D1_BUDGET_EXHAUSTED_KEY);
+  return flag ? D1_BUDGET_EXHAUSTED_MESSAGE : null;
+}
+
+/**
+ * Remember a quota exhaustion so later syncs fail fast instead of burning
+ * WakaTime calls and dying halfway through a half-written leaderboard.
+ */
+export async function markD1BudgetExhausted(env: Env): Promise<void> {
+  const now = new Date();
+  const midnightUtc = Math.floor(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) / 1000
+  );
+  await env.SESSIONS.put(D1_BUDGET_EXHAUSTED_KEY, '1', { expirationAt: midnightUtc });
+}
+
 /** How long fetch_log rows are kept - readers only ever look back hours/days. */
 export const FETCH_LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 

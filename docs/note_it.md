@@ -75,3 +75,22 @@ filter, dead `fetchWeekDataForUser`/`fetchTodayDataForAllUsers`,
 per-request `verifySession` PK lookup, `wasFetchedToday` fetch_type
 cross-talk (loose matching currently *saves* re-fetches - scoping it
 would cost more writes, so left alone).
+
+## Ops lesson: D1 bills index builds as writes (2026-09-07)
+
+Applying this file (`add_perf_indexes.sql`) to prod reported
+`rows_written: 106101` - covering indexes over the 15k-row
+`leaderboard_history` cost more than the entire 100k/day free write
+budget by itself, and together with the one-off 15k-row `fetch_log`
+prune the same day, every subsequent write failed with
+"exceeded D1's free tier daily row write limit" until UTC midnight.
+Rule: schema/index migrations and bulk deletes ship right after
+00:00 UTC with nothing else big that day.
+
+Hardening added (`worker/database.ts`, `worker/index.ts`): quota errors
+are matched (`isD1BudgetError`), sync entries (refresh-all, fetch-now,
+reset-season, cron, OAuth) fail fast on a KV flag
+(`d1_budget_exhausted`, auto-expires at UTC midnight) instead of
+burning WakaTime calls and dying halfway, and the user sees
+"Database daily budget exhausted - syncs resume after midnight UTC"
+instead of raw `D1_ERROR`.
