@@ -477,9 +477,7 @@ export function Profile() {
                 <p>
                   Every number is <strong>relative to everyone else</strong>, not an absolute
                   bar - each of the 6 stats is your percentile rank against the whole group,
-                  rescaled so even last place still looks respectable. PAC and SHO count both
-                  your own time/lines and AI-assisted time/lines (AI counted at a discount) -
-                  this app doesn't hide or penalize AI usage, it's part of how you work.
+                  rescaled so even last place still looks respectable.
                 </p>
                 <p>
                   <strong>PAC</strong> active coding time · <strong>SHO</strong> lines written ·{' '}

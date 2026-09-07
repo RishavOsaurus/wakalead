@@ -33,12 +33,11 @@ export function Criteria() {
             <code className="text-xs bg-slate-100 dark:bg-zinc-800 rounded px-1.5 py-0.5">
               rating = round(55 + percentile × 44)
             </code>{' '}
-            (PHY uses a floor of 65). <strong>Overall</strong> is the average of the six,
-            rounded.
+            <strong>Overall</strong> is the average of the six, rounded.
           </p>
           <ul className="mt-3 space-y-2 text-sm text-slate-600 dark:text-zinc-300">
-            <li><strong className="text-slate-800 dark:text-zinc-100">PAC</strong> — active coding time (AI time at 0.7×).</li>
-            <li><strong className="text-slate-800 dark:text-zinc-100">SHO</strong> — lines written (AI lines at 0.7×).</li>
+            <li><strong className="text-slate-800 dark:text-zinc-100">PAC</strong> — active coding time.</li>
+            <li><strong className="text-slate-800 dark:text-zinc-100">SHO</strong> — lines written.</li>
             <li><strong className="text-slate-800 dark:text-zinc-100">PAS</strong> — projects + languages with 30+ minutes each.</li>
             <li><strong className="text-slate-800 dark:text-zinc-100">DRI</strong> — editors + OSs with 30+ minutes each.</li>
             <li><strong className="text-slate-800 dark:text-zinc-100">DEF</strong> — consistency: active days ÷ tracked days (a day counts at 40+ min).</li>

@@ -1350,7 +1350,6 @@ export interface UserCardAttributes {
 }
 
 const CARD_RATING_FLOOR = 55; // worst-in-cohort attribute still reads as solidly average
-const PHY_RATING_FLOOR = 65;  // PHY specifically never drops below this, regardless of percentile
 const CARD_MIN_DAYS_ACTIVE = 7; // below this, personally provisional - not enough data for a meaningful percentile
 const CARD_MIN_COHORT = 4; // below this many users with any data, percentile ranking is close to meaningless for everyone
 const CARD_ACTIVE_SECONDS = 40 * 60; // a day only counts toward DEF/PHY at 40+ active minutes, not just nonzero
@@ -1767,7 +1766,7 @@ export async function computeCardsForAllUsers(env: Env, scope: CardScope, today:
   const projectPercentiles = percentileRanks(userIds.map((id) => raw.get(id)!.maxProjectSeconds));
   userIds.forEach((id, i) => {
     const blended = 0.6 * streakPercentiles[i] + 0.4 * projectPercentiles[i];
-    ratingsByUser.get(id)!.phy = rescale(blended, PHY_RATING_FLOOR);
+    ratingsByUser.get(id)!.phy = rescale(blended);
   });
 
   const overallByUser = new Map<number, number>();
