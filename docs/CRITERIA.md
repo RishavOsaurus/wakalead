@@ -53,8 +53,8 @@ highest one only:
 
 | # | Card | Who gets it | When it can first appear |
 |---|---|---|---|
-| 1 | **Icon** | **Most daily wins in 2+ past seasons** (see title race below) | Season 3 (needs 2 archived seasons; until then this tier is empty) |
-| 2 | **White Icon** | **All 6 attributes >= 90** at once (~top-quintile in everything simultaneously) | Anytime, but extremely rare by construction |
+| 1 | **White Icon** | **All 6 attributes >= 95** at once (~91st percentile in everything simultaneously - the true legend tier) | Anytime, but extraordinarily rare by construction |
+| 2 | **Icon** | **Reigning champion** - most daily wins last season | Season 2 (needs 1 archived season; exactly one holder at a time) |
 | 3 | **Legend/Hero** | **#1 by overall** in the current cohort, right now | Always - exactly one holder, re-decided every computation |
 | 4 | **Featured Red** | **`day_streak` or `week_streak` > 5** (rank-1 streaks, live) | Whenever someone builds a 6+ streak |
 | 5 | **Base Gold** | **Overall >= 75**, and none of the above | Anytime |
@@ -86,8 +86,12 @@ whoever has the **most daily wins** (`rank = 1 AND value > 0`). Dead days
 (everyone at zero) crown nobody. Ties broken by lower user id -
 deterministic, no coin flips.
 
+The previous season's champion is the reigning **Icon** - exactly one
+holder, passing to each new winner at every reset. All-time greats
+(2+ titles) have no separate tier; White Icon is the legend tier now.
+
 Data used: frozen season tables only. No join dates, no windows, no
-qualifier. Icon = most daily wins in 2+ past seasons.
+qualifier.
 
 ### Live season standings (dashboard drivers' table)
 

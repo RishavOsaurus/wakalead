@@ -1355,6 +1355,7 @@ const CARD_MIN_COHORT = 4; // below this many users with any data, percentile ra
 const CARD_ACTIVE_SECONDS = 40 * 60; // a day only counts toward DEF/PHY at 40+ active minutes, not just nonzero
 const DIVERSITY_MIN_SECONDS = 30 * 60; // a project/language/editor/os only counts toward PAS/DRI breadth with 30+ minutes (you actually used it)
 const FEATURED_STREAK_THRESHOLD = 5; // day_streak or week_streak > 5 triggers Featured Red
+const WHITE_ICON_BAR = 95; // every attribute at 95+ (~91st percentile in everything at once) - the true legend tier
 
 /**
  * Fractional percentile rank in [0, 1] for each value in `values`, tied
@@ -1585,14 +1586,16 @@ function windowDaysBetween(start: string, end: string): number {
 }
 
 /**
- * Per-user count of past seasons they were champion of. Champion = most
+ * Per-user count of past-season championships, plus the previous season's
+ * champion id (null when no season has been archived yet). Champion = most
  * daily wins (rank-1 days, metric='total', value > 0) - dead days where
  * everyone logged zero crown nobody. Ties broken by lower user id
  * (deterministic).
  */
-async function getSeasonChampionCounts(env: Env): Promise<Map<number, number>> {
+async function getSeasonChampionCounts(env: Env): Promise<{ counts: Map<number, number>; prevChampion: number | null }> {
   const currentSeason = await getCurrentSeason(env);
   const counts = new Map<number, number>();
+  let prevChampion: number | null = null;
   for (let n = 1; n < currentSeason; n++) {
     try {
       const champion = await env.DB.prepare(`
@@ -1603,12 +1606,15 @@ async function getSeasonChampionCounts(env: Env): Promise<Map<number, number>> {
         ORDER BY rank1_days DESC, user_id ASC
         LIMIT 1
       `).first<{ user_id: number; rank1_days: number }>();
-      if (champion) counts.set(champion.user_id, (counts.get(champion.user_id) ?? 0) + 1);
+      if (champion) {
+        counts.set(champion.user_id, (counts.get(champion.user_id) ?? 0) + 1);
+        if (n === currentSeason - 1) prevChampion = champion.user_id;
+      }
     } catch (error) {
       console.error(`Error computing champion for season ${n}:`, error);
     }
   }
-  return counts;
+  return { counts, prevChampion };
 }
 
 export interface SeasonStanding {
@@ -1768,7 +1774,7 @@ export async function computeCardsForAllUsers(env: Env, scope: CardScope, today:
     overallByUser.set(id, Math.round((r.pac + r.sho + r.pas + r.dri + r.def + r.phy) / 6));
   }
 
-  const [championCounts, rankOneStats] = await Promise.all([
+  const [championInfo, rankOneStats] = await Promise.all([
     getSeasonChampionCounts(env),
     getRankOneStats(env, 'total', today),
   ]);
@@ -1791,12 +1797,12 @@ export async function computeCardsForAllUsers(env: Env, scope: CardScope, today:
     const position: CardPosition = id === lowestOverallUserId ? 'GK' : assignPosition(attrs, id);
 
     let cardType: CardType;
-    const allSixElite = attrs.pac >= 90 && attrs.sho >= 90 && attrs.pas >= 90 && attrs.dri >= 90 && attrs.def >= 90 && attrs.phy >= 90;
+    const allSixElite = attrs.pac >= WHITE_ICON_BAR && attrs.sho >= WHITE_ICON_BAR && attrs.pas >= WHITE_ICON_BAR && attrs.dri >= WHITE_ICON_BAR && attrs.def >= WHITE_ICON_BAR && attrs.phy >= WHITE_ICON_BAR;
     const streak = rankOneStats.get(id);
     const isHot = !!streak && (streak.day_streak > FEATURED_STREAK_THRESHOLD || streak.week_streak > FEATURED_STREAK_THRESHOLD);
 
-    if ((championCounts.get(id) ?? 0) >= 2) cardType = 'icon';
-    else if (allSixElite) cardType = 'white_icon';
+    if (allSixElite) cardType = 'white_icon';
+    else if (id === championInfo.prevChampion) cardType = 'icon';
     else if (id === highestOverallUserId) cardType = 'legend_hero';
     else if (isHot) cardType = 'featured_red';
     else if (overall >= 75) cardType = 'base_gold';

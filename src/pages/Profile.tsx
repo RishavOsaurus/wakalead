@@ -494,8 +494,8 @@ export function Profile() {
                   - not enough data for a meaningful percentile yet.
                 </p>
                 <p>
-                  Card type: <strong>Icon</strong> = champion of 2+ past seasons ·{' '}
-                  <strong>White Icon</strong> = every stat 90+ · <strong>Hero</strong> = #1
+                  Card type: <strong>White Icon</strong> = every stat 95+ (legendary) ·{' '}
+                  <strong>Icon</strong> = reigning season champion · <strong>Hero</strong> = #1
                   overall right now · <strong>Featured</strong> = an active streak over 5 ·{' '}
                   <strong>Gold/Silver</strong> = everyone else, by overall rating.
                 </p>
