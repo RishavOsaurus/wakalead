@@ -1324,7 +1324,7 @@ interface RawUserCardMetrics {
   recentActivity: number;  // combined time_score + output_score, last 7 days
   priorActivity: number;   // combined time_score + output_score, the 7 days before that
   maxProjectSeconds: number; // average time across the user's top 2 projects by total time (in scope)
-  last3DaySeconds: number; // total_seconds over [today-2, today] - the On Form trigger
+  last7DaySeconds: number; // total_seconds over [today-6, today] - the On Form trigger
 }
 
 export interface NextTierHint {
@@ -1356,7 +1356,7 @@ const CARD_MIN_COHORT = 4; // below this many users with any data, percentile ra
 const CARD_ACTIVE_SECONDS = 40 * 60; // a day only counts toward DEF/PHY at 40+ active minutes, not just nonzero
 const DIVERSITY_MIN_SECONDS = 30 * 60; // a project/language/editor/os only counts toward PAS/DRI breadth with 30+ minutes (you actually used it)
 const WHITE_ICON_BAR = 90; // every attribute at 90+ (paired with reigning + 2+ titles for White Icon)
-const ON_FORM_MIN_SECONDS = 10 * 3600; // 10+ hours coded in the last 3 days triggers On Form
+const ON_FORM_MIN_SECONDS = 24 * 3600; // more than 24 hours coded in the trailing 7 days triggers On Form
 
 /**
  * Fractional percentile rank in [0, 1] for each value in `values`, tied
@@ -1427,7 +1427,6 @@ async function getCardMetricsForAllUsers(env: Env, scope: CardScope, today: stri
   const recentStart = shiftDate(today, -6);   // last 7 days, inclusive of today
   const priorStart = shiftDate(today, -13);   // the 7 days before that
   const priorEnd = shiftDate(today, -7);
-  const formStart = shiftDate(today, -2);     // last 3 days, inclusive of today (On Form window)
 
   const [dailyTables, breakdownTables] = await Promise.all([
     getScopedTableNames(env, scope, 'daily_stats'),
@@ -1460,7 +1459,7 @@ async function getCardMetricsForAllUsers(env: Env, scope: CardScope, today: stri
       m = {
         time_score: 0, output_score: 0, days_active: 0, days_tracked: 0, longest_streak: 0,
         distinct_projects: 0, distinct_languages: 0, distinct_editors: 0, distinct_os: 0,
-        recentActivity: 0, priorActivity: 0, maxProjectSeconds: 0, last3DaySeconds: 0,
+        recentActivity: 0, priorActivity: 0, maxProjectSeconds: 0, last7DaySeconds: 0,
       };
       byUser.set(userId, m);
     }
@@ -1476,7 +1475,7 @@ async function getCardMetricsForAllUsers(env: Env, scope: CardScope, today: stri
     m.output_score += (row.human_lines || 0) + 0.7 * (row.ai_lines || 0);
     if (row.date >= recentStart) m.recentActivity += dayActivity;
     else if (row.date >= priorStart && row.date <= priorEnd) m.priorActivity += dayActivity;
-    if (row.date >= formStart && row.date <= today) m.last3DaySeconds += row.total_seconds || 0;
+    if (row.date >= recentStart && row.date <= today) m.last7DaySeconds += row.total_seconds || 0;
     m.days_tracked += 1;
     if ((row.total_seconds || 0) >= CARD_ACTIVE_SECONDS) {
       m.days_active += 1;
@@ -1805,7 +1804,7 @@ export async function computeCardsForAllUsers(env: Env, scope: CardScope, today:
     // White Icon absorbs the reigning slot: the champ with all-90+ and 2+
     // titles shows White Icon, so no separate Icon exists that season.
     const isWhiteIcon = allSixElite && isReigning && (championInfo.counts.get(id) ?? 0) >= 2;
-    const isOnForm = raw.get(id)!.last3DaySeconds >= ON_FORM_MIN_SECONDS;
+    const isOnForm = raw.get(id)!.last7DaySeconds > ON_FORM_MIN_SECONDS;
 
     if (isWhiteIcon) cardType = 'white_icon';
     else if (isReigning) cardType = 'icon';

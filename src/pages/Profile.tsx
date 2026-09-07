@@ -497,8 +497,8 @@ export function Profile() {
                   Card type: <strong>White Icon</strong> = every stat 90+ as reigning
                   2x champ (legendary, absorbs Icon) ·{' '}
                   <strong>Icon</strong> = reigning season champion · <strong>Hero</strong> = #1
-                  overall right now · <strong>On Form</strong> = 10+ hours coded in the
-                  last 3 days ·{' '}
+                  overall right now · <strong>On Form</strong> = more than 24 hours coded
+                  in the trailing 7 days ·{' '}
                   <strong>Gold/Silver</strong> = everyone else, by overall rating.
                 </p>
               </div>

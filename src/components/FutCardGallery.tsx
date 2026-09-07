@@ -8,7 +8,7 @@ const SPOTLIGHT_TIERS: Array<{ type: CardType; requirement: string }> = [
   { type: 'white_icon', requirement: 'All stats 90+, reigning champ with 2+ titles (absorbs the Icon slot)' },
   { type: 'icon', requirement: 'Reigning champion - most daily wins last season' },
   { type: 'legend_hero', requirement: '#1 overall right now' },
-  { type: 'featured_red', requirement: '10+ hours coded in the last 3 days' },
+  { type: 'featured_red', requirement: 'More than 24 hours coded in the trailing 7 days' },
 ];
 
 /**
