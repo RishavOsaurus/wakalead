@@ -53,7 +53,7 @@ highest one only:
 
 | # | Card | Who gets it | When it can first appear |
 |---|---|---|---|
-| 1 | **Icon** | **Season champion of 2+ past seasons** - best title score among qualifiers (see title race below) | Season 3 (needs 2 archived seasons; until then this tier is empty) |
+| 1 | **Icon** | **Most daily wins in 2+ past seasons** (see title race below) | Season 3 (needs 2 archived seasons; until then this tier is empty) |
 | 2 | **White Icon** | **All 6 attributes >= 90** at once (~top-quintile in everything simultaneously) | Anytime, but extremely rare by construction |
 | 3 | **Legend/Hero** | **#1 by overall** in the current cohort, right now | Always - exactly one holder, re-decided every computation |
 | 4 | **Featured Red** | **`day_streak` or `week_streak` > 5** (rank-1 streaks, live) | Whenever someone builds a 6+ streak |
@@ -82,42 +82,27 @@ Notes:
 
 Each past season crowns one champion from its frozen
 `leaderboard_history_season_N` table (daily rows, metric `total`):
+whoever has the **most daily wins** (`rank = 1 AND value > 0`). Dead days
+(everyone at zero) crown nobody. Ties broken by lower user id -
+deterministic, no coin flips.
 
-- **Points**: each active day (`value > 0`) pays F1-style points by rank -
-  25/18/15/12/10/8/6/4/2/1 for ranks 1-10, nothing beyond. Dead days
-  (everyone at zero) pay nobody.
-- **Own-window rate with consistency**: score = `points x activeDays /
-  windowDays^2`, where your window runs from your join date (or season
-  start, whichever is later) to season end. A rate, not a total - early
-  joiners can't coast on accumulated days, late joiners aren't locked out -
-  and each idle day dilutes twice (once in the rate, once in the share), so
-  steady drivers outscore boom-bust ones on equal points. Uniform patterns
-  like weekends off scale everyone alike.
-- **Qualifier**: 7+ active days AND active on 55% of your own window.
-  Tourists and 2-day cameos can't take the title; anyone with a few real
-  weeks in the season can.
-- **Tiebreak**: more total points, then more active days, then lower user
-  id - deterministic, no coin flips.
-
-Data used: frozen season tables (rank/value per day), `users.created_at`
-(join dates), `season_resets.archived_at` (season boundaries). No new
-tables, no migration. Icon = champion of 2+ past seasons under these rules.
+Data used: frozen season tables only. No join dates, no windows, no
+qualifier. Icon = most daily wins in 2+ past seasons.
 
 ### Live season standings (dashboard drivers' table)
 
-`GET /api/season/standings` serves the title race as it stands today, same
-scoring as the frozen-season championship, computed over the live tables
-clamped to the current season. Columns:
+`GET /api/season/standings` serves the title race as it stands today,
+computed over the live tables clamped to the current season. Columns:
 
-- **Pos / Driver / Pts** - F1-style position and total points.
-- **P1 / P2 / P3** - daily wins / second / third places (active days only).
-- **DNF** - synced days in your own window with zero time (capped-out days
-  that dilute your average; cron gaps you never synced don't count).
-- **Avg** - title score (points/day × active share - idleness dilutes twice).
-- **Q** - title-qualified (7+ active days, 50% of own window).
+- **Pos / Driver / Pts** - position and F1 points (25-18-15-12-10-8-6-4-2-1
+  per daily rank).
+- **P1 / P2 / P3** - daily wins / seconds / thirds (active days only).
+- **DNF** - synced days in your own window with zero time (cron gaps you
+  never synced don't count).
+- **Avg** - points per own-window day, informational.
 
-Ordered by title score (then Pts, active days, user id) - P1 here takes the crown
-if the season ended today.
+Ordered by wins (then Pts, active days, user id) - most daily wins takes
+the crown if the season ended today.
 
 ## Position
 

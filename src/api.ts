@@ -245,8 +245,6 @@ export interface SeasonStanding {
   dnfs: number;
   active_days: number;
   window_days: number;
-  qualified: boolean;
-  score: number;
 }
 
 export interface SeasonStandings {

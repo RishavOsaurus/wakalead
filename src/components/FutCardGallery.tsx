@@ -5,7 +5,7 @@ import { PlayerCard, CARD_TYPE_LABEL } from './PlayerCard';
 
 /** Special tiers worth spotlighting, in cascade (rarity) order. */
 const SPOTLIGHT_TIERS: Array<{ type: CardType; requirement: string }> = [
-  { type: 'icon', requirement: 'Season champion (best daily points rate) of 2+ past seasons' },
+  { type: 'icon', requirement: 'Most daily wins in 2+ past seasons' },
   { type: 'white_icon', requirement: 'Every stat 90+' },
   { type: 'legend_hero', requirement: '#1 overall right now' },
   { type: 'featured_red', requirement: 'Streak over 5' },

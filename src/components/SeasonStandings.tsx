@@ -44,7 +44,7 @@ export function SeasonStandings() {
           Season Standings
           {data && <span className="ml-2 font-normal text-slate-400 dark:text-zinc-500">Season {data.season}</span>}
         </h2>
-        {data && data.standings.length > 0 && data.standings[0].qualified && (
+        {data && data.standings.length > 0 && (
           <p className="text-xs text-slate-500 dark:text-zinc-400">
             ★ Title leader: {data.standings[0].display_name || data.standings[0].username}
           </p>
@@ -79,8 +79,7 @@ export function SeasonStandings() {
                     <th className="text-right font-semibold py-2 px-2" title="Daily P2 finishes">P2</th>
                     <th className="text-right font-semibold py-2 px-2" title="Daily P3 finishes">P3</th>
                     <th className="text-right font-semibold py-2 px-2" title="Synced days with zero time">DNF</th>
-                    <th className="text-right font-semibold py-2 px-2" title="Title score: points per day × active share (rewards consistency)">Avg</th>
-                    <th className="text-right font-semibold py-2 pl-2 w-10" title="Title-qualified: 7+ active days, 50% of own window">Q</th>
+                    <th className="text-right font-semibold py-2 px-2" title="Points per day in own window">Avg</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -128,23 +127,6 @@ export function SeasonStandings() {
                         </span>
                       </td>
                       <td className="text-right text-slate-600 dark:text-zinc-300 px-2">{s.avg.toFixed(2)}</td>
-                      <td className="text-right pl-2">
-                        {s.qualified ? (
-                          <span
-                            className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 text-[10px] font-bold"
-                            title={`Qualified (${s.active_days} active / ${s.window_days} window days)`}
-                          >
-                            Q
-                          </span>
-                        ) : (
-                          <span
-                            className="inline-block w-5 text-center text-slate-300 dark:text-zinc-700"
-                            title={`Not qualified (${s.active_days} active / ${s.window_days} window days)`}
-                          >
-                            –
-                          </span>
-                        )}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -152,8 +134,8 @@ export function SeasonStandings() {
             </div>
             <p className="mt-3 text-[11px] text-slate-400 dark:text-zinc-600">
               Pts = F1 points per daily rank · P1/P2/P3 = daily podiums · DNF = synced day with zero
-              time · Avg = title score (points/day × active share - idleness dilutes twice) · Q =
-              title-qualified.
+              time · Avg = points per day in your own window. Ordered by wins - most daily wins
+              takes the crown.
             </p>
           </>
         )}

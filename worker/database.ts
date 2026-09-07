@@ -1569,10 +1569,8 @@ function assignPosition(attrs: Pick<UserCardAttributes, 'pac' | 'sho' | 'pas' | 
   return best.pos;
 }
 
-/** F1-style daily points by rank - ranks beyond 10 score nothing. Dead days (value 0) pay nothing to anyone. */
+/** F1-style daily points by rank - used for the live standings table's Pts column. Ranks beyond 10 score nothing. */
 const CHAMPION_POINTS_BY_RANK = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
-const CHAMPION_MIN_ACTIVE_DAYS = 7; // qualifier floor: tourists can't take a title on a 2-day cameo
-const CHAMPION_MIN_WINDOW_SHARE = 0.55; // ... of the user's OWN window (join date -> season end), so late joiners aren't locked out
 
 /** YYYY-MM-DD in app (Nepal) timezone for a ms timestamp. */
 function nepalDateStr(ts: number): string {
@@ -1586,83 +1584,26 @@ function windowDaysBetween(start: string, end: string): number {
   return ms < 0 ? 0 : Math.floor(ms / 86400000) + 1;
 }
 
-/** Title score: points-per-day scaled by active share (0 when the window is empty). */
-function titleScore(points: number, activeDays: number, windowDays: number): number {
-  if (windowDays <= 0) return 0;
-  return (points / windowDays) * (activeDays / windowDays);
-}
-
 /**
- * Per-user count of past seasons they were champion of. Champion = best
- * title score among qualifiers (see titleScore below), judged on each
- * user's OWN window (their join date, or season start if they joined
- * earlier, through season end) - a rate, not a total, so early joiners
- * can't coast on accumulated days and late joiners aren't structurally
- * excluded. Qualifier: 7+ active days AND active on 55% of their own
- * window. Ties: more total points, then more active days, then lower
- * user id (deterministic).
- *
- * Title score = points-per-day scaled by active share
- * (points x activeDays / windowDays^2). Each idle day dilutes twice - once
- * in the rate, once in the share - so steady drivers outscore boom-bust
- * ones on equal points. Uniform patterns (e.g. weekends off) scale
- * everyone alike, so only idleness beyond the norm gets punished.
+ * Per-user count of past seasons they were champion of. Champion = most
+ * daily wins (rank-1 days, metric='total', value > 0) - dead days where
+ * everyone logged zero crown nobody. Ties broken by lower user id
+ * (deterministic).
  */
 async function getSeasonChampionCounts(env: Env): Promise<Map<number, number>> {
   const currentSeason = await getCurrentSeason(env);
   const counts = new Map<number, number>();
-  if (currentSeason <= 1) return counts;
-
-  const [resets, users] = await Promise.all([
-    getSeasonHistory(env),
-    env.DB.prepare('SELECT id, created_at FROM users').all<{ id: number; created_at: number }>(),
-  ]);
-  const endedAtBySeason = new Map(resets.map((r) => [r.season_number, r.archived_at]));
-  const joinedByUser = new Map((users.results || []).map((u) => [u.id, nepalDateStr(u.created_at)]));
-
-  const pointsCase = CHAMPION_POINTS_BY_RANK.map((pts, i) => `WHEN ${i + 1} THEN ${pts}`).join(' ');
-
   for (let n = 1; n < currentSeason; n++) {
     try {
-      const seasonEnd = endedAtBySeason.get(n);
-      if (!seasonEnd) continue;
-      const endStr = nepalDateStr(seasonEnd);
-      const prevReset = n === 1 ? null : endedAtBySeason.get(n - 1);
-      const startStr = prevReset == null ? null : nepalDateStr(prevReset);
-
-      const rows = await env.DB.prepare(`
-        SELECT user_id,
-          SUM(CASE rank ${pointsCase} ELSE 0 END) as points,
-          SUM(CASE WHEN value > 0 THEN 1 ELSE 0 END) as active_days
+      const champion = await env.DB.prepare(`
+        SELECT user_id, COUNT(*) as rank1_days
         FROM leaderboard_history_season_${n}
-        WHERE period = 'day' AND metric = 'total' AND value > 0
+        WHERE period = 'day' AND metric = 'total' AND rank = 1 AND value > 0
         GROUP BY user_id
-      `).all<{ user_id: number; points: number; active_days: number }>();
-
-      let champion: number | null = null;
-      let bestScore = -1, bestPoints = -1, bestActive = -1;
-      for (const row of rows.results || []) {
-        const joinStr = joinedByUser.get(row.user_id) ?? startStr ?? endStr;
-        const windowStart = startStr && startStr > joinStr ? startStr : joinStr;
-        const windowDays = windowDaysBetween(windowStart, endStr);
-        if (windowDays <= 0) continue;
-        const active = row.active_days || 0;
-        const points = row.points || 0;
-        if (active < CHAMPION_MIN_ACTIVE_DAYS || active < windowDays * CHAMPION_MIN_WINDOW_SHARE) continue;
-        const score = titleScore(points, active, windowDays);
-        const better = champion === null
-          || score > bestScore
-          || (score === bestScore && (points > bestPoints
-            || (points === bestPoints && (active > bestActive
-              || (active === bestActive && row.user_id < champion)))));
-        if (better) {
-          champion = row.user_id;
-          bestScore = score;
-          bestPoints = points;
-          bestActive = active;
-        }
-      }
-      if (champion !== null) counts.set(champion, (counts.get(champion) ?? 0) + 1);
+        ORDER BY rank1_days DESC, user_id ASC
+        LIMIT 1
+      `).first<{ user_id: number; rank1_days: number }>();
+      if (champion) counts.set(champion.user_id, (counts.get(champion.user_id) ?? 0) + 1);
     } catch (error) {
       console.error(`Error computing champion for season ${n}:`, error);
     }
@@ -1677,16 +1618,14 @@ export interface SeasonStanding {
   display_name: string | null;
   photo_url: string | null;
   points: number;
-  avg: number; // title score (points x consistency, see titleScore)
-  wins: number; // daily P1s
+  avg: number; // points per own-window day (informational)
+  wins: number; // daily P1s - the title metric
   seconds: number; // daily P2s
   thirds: number; // daily P3s
   podiums: number;
   dnfs: number; // synced days in own window with zero time
   active_days: number;
   window_days: number;
-  qualified: boolean;
-  score: number;
 }
 
 export interface SeasonStandingsResult {
@@ -1698,10 +1637,9 @@ export interface SeasonStandingsResult {
 
 /**
  * Live F1-style drivers' table for the current season - the title race as
- * it stands today. Same scoring as the frozen-season champion
- * (titleScore, same qualifier), computed over the live tables clamped to
- * the current season. Ordered by title metric, so pos 1 here is who would
- * take the crown if the season ended today.
+ * it stands today. Ordered by daily wins (the championship metric), so
+ * pos 1 here takes the crown if the season ended today. Points/podiums
+ * are the supporting stats.
  */
 export async function getSeasonStandings(env: Env, today: string): Promise<SeasonStandingsResult> {
   const [season, startDate] = await Promise.all([getCurrentSeason(env), getCurrentSeasonStartDate(env)]);
@@ -1759,7 +1697,7 @@ export async function getSeasonStandings(env: Env, today: string): Promise<Seaso
       }
     }
 
-    const score = titleScore(points, active, windowDays);
+    const avg = windowDays > 0 ? points / windowDays : 0;
     entries.push({
       pos: 0,
       user_id: u.id,
@@ -1767,7 +1705,7 @@ export async function getSeasonStandings(env: Env, today: string): Promise<Seaso
       display_name: u.display_name,
       photo_url: u.photo_url,
       points,
-      avg: Math.round(score * 100) / 100,
+      avg: Math.round(avg * 100) / 100,
       wins,
       seconds: p2,
       thirds: p3,
@@ -1775,13 +1713,11 @@ export async function getSeasonStandings(env: Env, today: string): Promise<Seaso
       dnfs,
       active_days: active,
       window_days: windowDays,
-      qualified: active >= CHAMPION_MIN_ACTIVE_DAYS && windowDays > 0 && active >= windowDays * CHAMPION_MIN_WINDOW_SHARE,
-      score,
     });
   }
 
   entries.sort((a, b) =>
-    b.score - a.score || b.points - a.points || b.active_days - a.active_days || a.user_id - b.user_id
+    b.wins - a.wins || b.points - a.points || b.active_days - a.active_days || a.user_id - b.user_id
   );
   entries.forEach((e, i) => { e.pos = i + 1; });
 
