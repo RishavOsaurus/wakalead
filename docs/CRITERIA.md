@@ -19,7 +19,7 @@ SHO = shooting/output.)
 | **PAS** | projects + languages with a **2%+ share** of that kind's time - meaningful breadth |
 | **DRI** | editors + OSs with a **2%+ share** of that kind's time - real tool versatility |
 | **DEF** | `days_active / days_tracked` - consistency ratio |
-| **PHY** | 60% `longest_streak` + 40% `MAX(project_seconds)`, each percentile-ranked separately then blended - stamina (day-streak endurance + sustained project commitment) |
+| **PHY** | 60% `longest_streak` + 40% average of top-2 `project_seconds`, each percentile-ranked separately then blended - stamina (day-streak endurance + sustained project commitment) |
 
 A day only counts toward DEF/PHY at **40+ active minutes**
 (`total_seconds >= 2400`), not just nonzero.

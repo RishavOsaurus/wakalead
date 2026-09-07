@@ -1323,7 +1323,7 @@ interface RawUserCardMetrics {
   distinct_os: number; // operating systems at >= DIVERSITY_MIN_SHARE of os time
   recentActivity: number;  // combined time_score + output_score, last 7 days
   priorActivity: number;   // combined time_score + output_score, the 7 days before that
-  maxProjectSeconds: number; // total time on their single biggest project (in scope)
+  maxProjectSeconds: number; // average time across the user's top 2 projects by total time (in scope)
 }
 
 export interface NextTierHint {
@@ -1508,9 +1508,13 @@ async function getCardMetricsForAllUsers(env: Env, scope: CardScope, today: stri
     m.distinct_languages = countAboveShare(rec.language);
     m.distinct_editors = countAboveShare(rec.editor);
     m.distinct_os = countAboveShare(rec.os);
-    // Biggest project stays a raw total (no share gate - it measures
-    // sustained commitment, not breadth).
-    m.maxProjectSeconds = Math.max(0, ...rec.project.values());
+    // Biggest projects stay raw totals (no share gate - they measure
+    // sustained commitment, not breadth): average across the top 2, so
+    // depth across two projects outscores a single dominant one.
+    const topProjects = [...rec.project.values()].sort((a, b) => b - a).slice(0, 2);
+    m.maxProjectSeconds = topProjects.length > 0
+      ? topProjects.reduce((sum, v) => sum + v, 0) / topProjects.length
+      : 0;
   }
 
   return byUser;
@@ -1618,8 +1622,8 @@ export async function computeCardsForAllUsers(env: Env, scope: CardScope, today:
     });
   }
 
-  // PHY (stamina) = 60% consecutive-day streak, 40% time sunk into their
-  // single biggest project - two forms of "staying power," ranked
+  // PHY (stamina) = 60% consecutive-day streak, 40% average time across
+  // their top 2 projects - two forms of "staying power," ranked
   // independently against the cohort (wildly different raw scales: days
   // vs. seconds) then blended as percentiles, rescaled once at the end.
   const streakPercentiles = percentileRanks(userIds.map((id) => raw.get(id)!.longest_streak));
