@@ -477,7 +477,8 @@ export function Profile() {
                 <p>
                   Every number is <strong>relative to everyone else</strong>, not an absolute
                   bar - each of the 6 stats is your percentile rank against the whole group,
-                  rescaled so even last place still looks respectable.
+                  rescaled so even last place still looks respectable. PAC = human time + 0.7 × AI
+                  time, SHO = human lines + 0.7 × AI lines.
                 </p>
                 <p>
                   <strong>PAC</strong> active coding time · <strong>SHO</strong> lines written ·{' '}

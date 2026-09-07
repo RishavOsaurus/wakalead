@@ -36,8 +36,8 @@ export function Criteria() {
             <strong>Overall</strong> is the average of the six, rounded.
           </p>
           <ul className="mt-3 space-y-2 text-sm text-slate-600 dark:text-zinc-300">
-            <li><strong className="text-slate-800 dark:text-zinc-100">PAC</strong> — active coding time.</li>
-            <li><strong className="text-slate-800 dark:text-zinc-100">SHO</strong> — lines written.</li>
+            <li><strong className="text-slate-800 dark:text-zinc-100">PAC</strong> — <code className="text-xs bg-slate-100 dark:bg-zinc-800 rounded px-1.5 py-0.5">human_seconds + 0.7 × ai_seconds</code></li>
+            <li><strong className="text-slate-800 dark:text-zinc-100">SHO</strong> — <code className="text-xs bg-slate-100 dark:bg-zinc-800 rounded px-1.5 py-0.5">human_lines + 0.7 × ai_lines</code></li>
             <li><strong className="text-slate-800 dark:text-zinc-100">PAS</strong> — projects + languages with 30+ minutes each.</li>
             <li><strong className="text-slate-800 dark:text-zinc-100">DRI</strong> — editors + OSs with 30+ minutes each.</li>
             <li><strong className="text-slate-800 dark:text-zinc-100">DEF</strong> — consistency: active days ÷ tracked days (a day counts at 40+ min).</li>
