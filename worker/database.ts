@@ -1324,6 +1324,7 @@ interface RawUserCardMetrics {
   recentActivity: number;  // combined time_score + output_score, last 7 days
   priorActivity: number;   // combined time_score + output_score, the 7 days before that
   maxProjectSeconds: number; // average time across the user's top 2 projects by total time (in scope)
+  last3DaySeconds: number; // total_seconds over [today-2, today] - the On Form trigger
 }
 
 export interface NextTierHint {
@@ -1354,8 +1355,8 @@ const CARD_MIN_DAYS_ACTIVE = 7; // below this, personally provisional - not enou
 const CARD_MIN_COHORT = 4; // below this many users with any data, percentile ranking is close to meaningless for everyone
 const CARD_ACTIVE_SECONDS = 40 * 60; // a day only counts toward DEF/PHY at 40+ active minutes, not just nonzero
 const DIVERSITY_MIN_SECONDS = 30 * 60; // a project/language/editor/os only counts toward PAS/DRI breadth with 30+ minutes (you actually used it)
-const FEATURED_STREAK_THRESHOLD = 5; // day_streak or week_streak > 5 triggers Featured Red
-const WHITE_ICON_BAR = 95; // every attribute at 95+ (~91st percentile in everything at once) - the true legend tier
+const WHITE_ICON_BAR = 90; // every attribute at 90+ (paired with reigning + 2+ titles for White Icon)
+const ON_FORM_MIN_SECONDS = 10 * 3600; // 10+ hours coded in the last 3 days triggers On Form
 
 /**
  * Fractional percentile rank in [0, 1] for each value in `values`, tied
@@ -1426,6 +1427,7 @@ async function getCardMetricsForAllUsers(env: Env, scope: CardScope, today: stri
   const recentStart = shiftDate(today, -6);   // last 7 days, inclusive of today
   const priorStart = shiftDate(today, -13);   // the 7 days before that
   const priorEnd = shiftDate(today, -7);
+  const formStart = shiftDate(today, -2);     // last 3 days, inclusive of today (On Form window)
 
   const [dailyTables, breakdownTables] = await Promise.all([
     getScopedTableNames(env, scope, 'daily_stats'),
@@ -1458,7 +1460,7 @@ async function getCardMetricsForAllUsers(env: Env, scope: CardScope, today: stri
       m = {
         time_score: 0, output_score: 0, days_active: 0, days_tracked: 0, longest_streak: 0,
         distinct_projects: 0, distinct_languages: 0, distinct_editors: 0, distinct_os: 0,
-        recentActivity: 0, priorActivity: 0, maxProjectSeconds: 0,
+        recentActivity: 0, priorActivity: 0, maxProjectSeconds: 0, last3DaySeconds: 0,
       };
       byUser.set(userId, m);
     }
@@ -1474,6 +1476,7 @@ async function getCardMetricsForAllUsers(env: Env, scope: CardScope, today: stri
     m.output_score += (row.human_lines || 0) + 0.7 * (row.ai_lines || 0);
     if (row.date >= recentStart) m.recentActivity += dayActivity;
     else if (row.date >= priorStart && row.date <= priorEnd) m.priorActivity += dayActivity;
+    if (row.date >= formStart && row.date <= today) m.last3DaySeconds += row.total_seconds || 0;
     m.days_tracked += 1;
     if ((row.total_seconds || 0) >= CARD_ACTIVE_SECONDS) {
       m.days_active += 1;
@@ -1798,13 +1801,16 @@ export async function computeCardsForAllUsers(env: Env, scope: CardScope, today:
 
     let cardType: CardType;
     const allSixElite = attrs.pac >= WHITE_ICON_BAR && attrs.sho >= WHITE_ICON_BAR && attrs.pas >= WHITE_ICON_BAR && attrs.dri >= WHITE_ICON_BAR && attrs.def >= WHITE_ICON_BAR && attrs.phy >= WHITE_ICON_BAR;
-    const streak = rankOneStats.get(id);
-    const isHot = !!streak && (streak.day_streak > FEATURED_STREAK_THRESHOLD || streak.week_streak > FEATURED_STREAK_THRESHOLD);
+    const isReigning = id === championInfo.prevChampion;
+    // White Icon absorbs the reigning slot: the champ with all-90+ and 2+
+    // titles shows White Icon, so no separate Icon exists that season.
+    const isWhiteIcon = allSixElite && isReigning && (championInfo.counts.get(id) ?? 0) >= 2;
+    const isOnForm = raw.get(id)!.last3DaySeconds >= ON_FORM_MIN_SECONDS;
 
-    if (allSixElite) cardType = 'white_icon';
-    else if (id === championInfo.prevChampion) cardType = 'icon';
+    if (isWhiteIcon) cardType = 'white_icon';
+    else if (isReigning) cardType = 'icon';
     else if (id === highestOverallUserId) cardType = 'legend_hero';
-    else if (isHot) cardType = 'featured_red';
+    else if (isOnForm) cardType = 'featured_red';
     else if (overall >= 75) cardType = 'base_gold';
     else cardType = 'base_silver';
 
@@ -1831,10 +1837,10 @@ export async function computeCardsForAllUsers(env: Env, scope: CardScope, today:
     }
 
     // Exposed regardless of cardType so the frontend can show a small flame
-    // badge on ANY card for someone building momentum, not just full
-    // Featured Red cards (which already need a higher bar to earn outright).
-    const hotStreak = streak && Math.max(streak.day_streak, streak.week_streak) >= 3
-      ? Math.max(streak.day_streak, streak.week_streak)
+    // badge on ANY card for someone on a rank-1 run.
+    const rankStreak = rankOneStats.get(id);
+    const hotStreak = rankStreak && Math.max(rankStreak.day_streak, rankStreak.week_streak) >= 3
+      ? Math.max(rankStreak.day_streak, rankStreak.week_streak)
       : null;
 
     cards.set(id, {

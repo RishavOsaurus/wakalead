@@ -53,10 +53,10 @@ highest one only:
 
 | # | Card | Who gets it | When it can first appear |
 |---|---|---|---|
-| 1 | **White Icon** | **All 6 attributes >= 95** at once (~91st percentile in everything simultaneously - the true legend tier) | Anytime, but extraordinarily rare by construction |
-| 2 | **Icon** | **Reigning champion** - most daily wins last season | Season 2 (needs 1 archived season; exactly one holder at a time) |
+| 1 | **White Icon** | **All 6 attributes >= 90 AND reigning champion AND 2+ titles** - the crowned legend; absorbs the Icon slot, so no separate Icon exists that season | Season 3 (needs title history; extraordinarily rare by construction) |
+| 2 | **Icon** | **Reigning champion** - most daily wins last season | Season 2 (needs 1 archived season; exactly one holder at a time, unless absorbed by White Icon) |
 | 3 | **Legend/Hero** | **#1 by overall** in the current cohort, right now | Always - exactly one holder, re-decided every computation |
-| 4 | **Featured Red** | **`day_streak` or `week_streak` > 5** (rank-1 streaks, live) | Whenever someone builds a 6+ streak |
+| 4 | **On Form** (red) | **10+ hours coded in the last 3 days** (live, from daily totals) | Whenever someone puts in a big 3-day shift |
 | 5 | **Base Gold** | **Overall >= 75**, and none of the above | Anytime |
 | 6 | **Base Silver** | **Everyone else** | Default tier |
 

@@ -5,10 +5,10 @@ import { PlayerCard, CARD_TYPE_LABEL } from './PlayerCard';
 
 /** Special tiers worth spotlighting, in cascade (rarity) order. */
 const SPOTLIGHT_TIERS: Array<{ type: CardType; requirement: string }> = [
+  { type: 'white_icon', requirement: 'All stats 90+, reigning champ with 2+ titles (absorbs the Icon slot)' },
   { type: 'icon', requirement: 'Reigning champion - most daily wins last season' },
-  { type: 'white_icon', requirement: 'Every stat 95+ (the true legend tier)' },
   { type: 'legend_hero', requirement: '#1 overall right now' },
-  { type: 'featured_red', requirement: 'Streak over 5' },
+  { type: 'featured_red', requirement: '10+ hours coded in the last 3 days' },
 ];
 
 /**

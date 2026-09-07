@@ -15,7 +15,7 @@ export const CARD_TYPE_LABEL: Record<CardType, string> = {
   icon: 'Icon',
   legend_hero: 'Hero',
   white_icon: 'White Icon',
-  featured_red: 'Featured',
+  featured_red: 'On Form',
   base_gold: 'Gold',
   base_silver: 'Silver',
 };
