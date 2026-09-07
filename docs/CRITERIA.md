@@ -53,7 +53,7 @@ highest one only:
 
 | # | Card | Who gets it | When it can first appear |
 |---|---|---|---|
-| 1 | **Icon** | **Season champion of 2+ past seasons** - best F1-points-per-day among qualifiers (see title race below) | Season 3 (needs 2 archived seasons; until then this tier is empty) |
+| 1 | **Icon** | **Season champion of 2+ past seasons** - best title score among qualifiers (see title race below) | Season 3 (needs 2 archived seasons; until then this tier is empty) |
 | 2 | **White Icon** | **All 6 attributes >= 90** at once (~top-quintile in everything simultaneously) | Anytime, but extremely rare by construction |
 | 3 | **Legend/Hero** | **#1 by overall** in the current cohort, right now | Always - exactly one holder, re-decided every computation |
 | 4 | **Featured Red** | **`day_streak` or `week_streak` > 5** (rank-1 streaks, live) | Whenever someone builds a 6+ streak |
