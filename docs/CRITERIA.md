@@ -44,15 +44,39 @@ blend) - never drops below 65 regardless of percentile.
 
 **Overall** = average of the 6 already-rescaled ratings, rounded.
 
-## Card type (priority cascade, first match wins)
+## Card type - who gets what, and when
 
-1. **Icon** - champion (most rank-1 days, `leaderboard_history_season_N`,
-   metric=total) of **2+ past seasons**
-2. **White Icon** - all 6 attributes >= **90**
-3. **Legend/Hero** - #1 by overall in the cohort, right now
-4. **Featured Red** - `day_streak` or `week_streak` > **5**
-5. **Base Gold** - overall >= **75**
-6. **Base Silver** - everyone else
+Evaluated fresh on **every card computation** (gallery load, profile view -
+cached for 60s), **per scope** (season vs career can give different types).
+First match in the cascade wins - a user matching several rules gets the
+highest one only:
+
+| # | Card | Who gets it | When it can first appear |
+|---|---|---|---|
+| 1 | **Icon** | Champion (most rank-1 days, metric `total`, period `day`) of **2+ past seasons** | Season 3 (needs 2 archived seasons; until then this tier is empty) |
+| 2 | **White Icon** | **All 6 attributes >= 90** at once (~top-quintile in everything simultaneously) | Anytime, but extremely rare by construction |
+| 3 | **Legend/Hero** | **#1 by overall** in the current cohort, right now | Always - exactly one holder, re-decided every computation |
+| 4 | **Featured Red** | **`day_streak` or `week_streak` > 5** (rank-1 streaks, live) | Whenever someone builds a 6+ streak |
+| 5 | **Base Gold** | **Overall >= 75**, and none of the above | Anytime |
+| 6 | **Base Silver** | **Everyone else** | Default tier |
+
+Notes:
+
+- **Hero always has exactly one holder** (ties broken by computation order);
+  every other special tier can have zero, one, or several holders - or sit
+  empty for months (Icon, White Icon). Empty is normal, not a bug.
+- **Streaks are live**: Featured is won and lost as streaks cross the
+  `> 5` line. A Featured holder whose streak drops to 5 falls back to
+  Gold/Silver (or Hero) on the next computation.
+- **Icon is historical**: it only changes at season resets, never
+  mid-season. White Icon / Hero / Featured can change daily.
+- **Scope matters**: a season-Hero and a career-Hero can be different
+  people. Icon counts past-season championships, so it is identical in both
+  scopes.
+- **Progression hints** (`nextTier`): Silver cards show points to Gold
+  (`75 - overall`); Gold cards show the gap to the current Hero. Special
+  tiers are qualitatively different, not "more points away," so they get no
+  hint - the gallery's "Who holds what" strip shows what to aim for instead.
 
 ## Position
 
