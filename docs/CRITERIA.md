@@ -53,7 +53,7 @@ highest one only:
 
 | # | Card | Who gets it | When it can first appear |
 |---|---|---|---|
-| 1 | **Icon** | Champion (most rank-1 days, metric `total`, period `day`) of **2+ past seasons** | Season 3 (needs 2 archived seasons; until then this tier is empty) |
+| 1 | **Icon** | **Season champion of 2+ past seasons** - best F1-points-per-day among qualifiers (see title race below) | Season 3 (needs 2 archived seasons; until then this tier is empty) |
 | 2 | **White Icon** | **All 6 attributes >= 90** at once (~top-quintile in everything simultaneously) | Anytime, but extremely rare by construction |
 | 3 | **Legend/Hero** | **#1 by overall** in the current cohort, right now | Always - exactly one holder, re-decided every computation |
 | 4 | **Featured Red** | **`day_streak` or `week_streak` > 5** (rank-1 streaks, live) | Whenever someone builds a 6+ streak |
@@ -77,6 +77,28 @@ Notes:
   (`75 - overall`); Gold cards show the gap to the current Hero. Special
   tiers are qualitatively different, not "more points away," so they get no
   hint - the gallery's "Who holds what" strip shows what to aim for instead.
+
+### The season title race (Icon qualifier)
+
+Each past season crowns one champion from its frozen
+`leaderboard_history_season_N` table (daily rows, metric `total`):
+
+- **Points**: each active day (`value > 0`) pays F1-style points by rank -
+  25/18/15/12/10/8/6/4/2/1 for ranks 1-10, nothing beyond. Dead days
+  (everyone at zero) pay nobody.
+- **Own-window rate**: score = `points / own window days`, where your window
+  runs from your join date (or season start, whichever is later) to season
+  end. A rate, not a total - early joiners can't coast on accumulated days,
+  late joiners aren't locked out.
+- **Qualifier**: 7+ active days AND active on half of your own window.
+  Tourists and 2-day cameos can't take the title; anyone with a few real
+  weeks in the season can.
+- **Tiebreak**: more total points, then more active days, then lower user
+  id - deterministic, no coin flips.
+
+Data used: frozen season tables (rank/value per day), `users.created_at`
+(join dates), `season_resets.archived_at` (season boundaries). No new
+tables, no migration. Icon = champion of 2+ past seasons under these rules.
 
 ## Position
 
