@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, CardScope, UserCardWithProfile } from '../api';
+import { api, CardScope, CardType, UserCardWithProfile } from '../api';
 import { PlayerCard, CARD_TYPE_LABEL } from './PlayerCard';
+
+/** Special tiers worth spotlighting, in cascade (rarity) order. */
+const SPOTLIGHT_TIERS: Array<{ type: CardType; requirement: string }> = [
+  { type: 'icon', requirement: 'Champion of 2+ past seasons' },
+  { type: 'white_icon', requirement: 'Every stat 90+' },
+  { type: 'legend_hero', requirement: '#1 overall right now' },
+  { type: 'featured_red', requirement: 'Streak over 5' },
+];
 
 /**
  * Everyone's FUT-style card at once, sorted best overall first - the
@@ -62,6 +70,48 @@ export function FutCardGallery() {
       </div>
 
       <div className="p-6">
+        {!loading && cards && cards.length > 0 && (
+          <div className="mb-6 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-800 px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mb-2">
+              Who holds what
+            </p>
+            <div className="flex flex-wrap gap-x-5 gap-y-2">
+              {SPOTLIGHT_TIERS.map(({ type, requirement }) => {
+                const holders = cards.filter((c) => c.cardType === type);
+                return (
+                  <div key={type} className="text-xs" title={requirement}>
+                    <span className="font-semibold text-slate-700 dark:text-zinc-200">
+                      {CARD_TYPE_LABEL[type]}
+                    </span>{' '}
+                    {holders.length === 0 ? (
+                      <span className="text-slate-400 dark:text-zinc-600">up for grabs</span>
+                    ) : (
+                      holders.map((h, i) => (
+                        <span key={h.user_id}>
+                          {i > 0 && ', '}
+                          <button
+                            onClick={() => navigate(`/profile/${h.username}`)}
+                            className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                          >
+                            {h.display_name || h.username}
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+                );
+              })}
+              <div className="text-xs text-slate-500 dark:text-zinc-400">
+                <span className="font-semibold text-slate-700 dark:text-zinc-200">Gold</span>{' '}
+                ×{cards.filter((c) => c.cardType === 'base_gold').length}
+                {' · '}
+                <span className="font-semibold text-slate-700 dark:text-zinc-200">Silver</span>{' '}
+                ×{cards.filter((c) => c.cardType === 'base_silver').length}
+              </div>
+            </div>
+          </div>
+        )}
+
         {loading && (
           <div className="flex flex-wrap justify-center gap-6">
             {[1, 2, 3].map((i) => (
