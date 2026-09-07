@@ -9,6 +9,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m
 const Login = lazy(() => import('./pages/Login').then(m => ({ default: m.Login })));
 const Profile = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
 const Compare = lazy(() => import('./pages/Compare').then(m => ({ default: m.Compare })));
+const Criteria = lazy(() => import('./pages/Criteria').then(m => ({ default: m.Criteria })));
 
 /**
  * Main App component
@@ -56,6 +57,7 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/profile/:username" element={<Profile />} />
             <Route path="/compare" element={<Compare />} />
+            <Route path="/criteria" element={<Criteria />} />
             <Route path="/" element={<Dashboard />} />
           </Routes>
         </Suspense>

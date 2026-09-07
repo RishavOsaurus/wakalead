@@ -412,6 +412,15 @@ export function Dashboard() {
           <p className="text-sm text-slate-400 dark:text-zinc-600">
             Made with ❤️ for coders who grind
           </p>
+          <p className="mt-1 text-xs text-slate-400 dark:text-zinc-600">
+            Want to know how cards and titles are decided?{' '}
+            <button
+              onClick={() => navigate('/criteria')}
+              className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+            >
+              Read the criteria
+            </button>
+          </p>
         </footer>
       </main>
     </div>
