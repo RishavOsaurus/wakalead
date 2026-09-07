@@ -1317,10 +1317,10 @@ interface RawUserCardMetrics {
   days_active: number;  // days with >= CARD_ACTIVE_SECONDS of total_seconds
   days_tracked: number; // days with any synced row at all
   longest_streak: number;
-  distinct_projects: number; // projects at >= DIVERSITY_MIN_SHARE of project time
-  distinct_languages: number; // languages at >= DIVERSITY_MIN_SHARE of language time
-  distinct_editors: number; // editors at >= DIVERSITY_MIN_SHARE of editor time
-  distinct_os: number; // operating systems at >= DIVERSITY_MIN_SHARE of os time
+  distinct_projects: number; // projects clearing both diversity bars (30+ min, 0.5%+ of project time)
+  distinct_languages: number; // languages clearing both diversity bars (30+ min, 0.5%+ of language time)
+  distinct_editors: number; // editors clearing both diversity bars (30+ min, 0.5%+ of editor time)
+  distinct_os: number; // operating systems clearing both diversity bars (30+ min, 0.5%+ of os time)
   recentActivity: number;  // combined time_score + output_score, last 7 days
   priorActivity: number;   // combined time_score + output_score, the 7 days before that
   maxProjectSeconds: number; // average time across the user's top 2 projects by total time (in scope)
@@ -1353,7 +1353,8 @@ const PHY_RATING_FLOOR = 65;  // PHY specifically never drops below this, regard
 const CARD_MIN_DAYS_ACTIVE = 7; // below this, personally provisional - not enough data for a meaningful percentile
 const CARD_MIN_COHORT = 4; // below this many users with any data, percentile ranking is close to meaningless for everyone
 const CARD_ACTIVE_SECONDS = 40 * 60; // a day only counts toward DEF/PHY at 40+ active minutes, not just nonzero
-const DIVERSITY_MIN_SHARE = 0.02; // a project/language/editor/os only counts toward PAS/DRI breadth at 2%+ of that kind's time
+const DIVERSITY_MIN_SHARE = 0.005; // + at least 0.5% of that kind's time (a real part of the mix, not a rounding error)
+const DIVERSITY_MIN_SECONDS = 30 * 60; // a project/language/editor/os only counts toward PAS/DRI breadth with 30+ minutes (you actually used it)
 const FEATURED_STREAK_THRESHOLD = 5; // day_streak or week_streak > 5 triggers Featured Red
 
 /**
@@ -1382,14 +1383,14 @@ function rescale(percentile: number, floor: number = CARD_RATING_FLOOR): number 
   return Math.round(floor + percentile * (99 - floor));
 }
 
-/** Count of names holding at least DIVERSITY_MIN_SHARE of total seconds - breadth with a meaningful-use bar. */
+/** Count of names clearing both diversity bars (absolute minutes + relative share) - breadth with a meaningful-use bar. */
 function countAboveShare(perNameSeconds: Map<string, number>): number {
   let total = 0;
   for (const s of perNameSeconds.values()) total += s;
   if (total <= 0) return 0;
   let n = 0;
   for (const s of perNameSeconds.values()) {
-    if (s / total >= DIVERSITY_MIN_SHARE) n++;
+    if (s >= DIVERSITY_MIN_SECONDS && s / total >= DIVERSITY_MIN_SHARE) n++;
   }
   return n;
 }
@@ -1501,9 +1502,10 @@ async function getCardMetricsForAllUsers(env: Env, scope: CardScope, today: stri
   }
   for (const [userId, rec] of kindSeconds) {
     const m = ensure(userId);
-    // Breadth only counts names with a meaningful (>= 2%) share of that
-    // kind's time - a 10-second experiment in another editor no longer
-    // scores the same as daily-driving it.
+    // Breadth only counts names clearing both bars (30+ min absolute and
+    // 0.5%+ relative share) - a 10-second experiment in another editor no
+    // longer scores the same as daily-driving it, and a 10h side project
+    // still counts for a 900h user.
     m.distinct_projects = countAboveShare(rec.project);
     m.distinct_languages = countAboveShare(rec.language);
     m.distinct_editors = countAboveShare(rec.editor);

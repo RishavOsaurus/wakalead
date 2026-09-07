@@ -16,19 +16,21 @@ SHO = shooting/output.)
 |---|---|
 | **PAC** | `SUM(human_seconds) + 0.7 * SUM(ai_seconds)` - active coding time |
 | **SHO** | `SUM(human_lines) + 0.7 * SUM(ai_lines)` - output/lines written |
-| **PAS** | projects + languages with a **2%+ share** of that kind's time - meaningful breadth |
-| **DRI** | editors + OSs with a **2%+ share** of that kind's time - real tool versatility |
+| **PAS** | projects + languages clearing **both bars** (30+ min, 0.5%+ share) - meaningful breadth |
+| **DRI** | editors + OSs clearing **both bars** (30+ min, 0.5%+ share) - real tool versatility |
 | **DEF** | `days_active / days_tracked` - consistency ratio |
 | **PHY** | 60% `longest_streak` + 40% average of top-2 `project_seconds`, each percentile-ranked separately then blended - stamina (day-streak endurance + sustained project commitment) |
 
 A day only counts toward DEF/PHY at **40+ active minutes**
 (`total_seconds >= 2400`), not just nonzero.
 
-A project/language/editor/OS only counts toward PAS/DRI breadth at **2%+
-of that kind's time** (`seconds(name) / seconds(all names of that kind) >=
-0.02`) - a 10-second experiment in another editor no longer scores the same
-as daily-driving it, and opening a repo in 5 editors for a minute each gains
-nothing.
+A project/language/editor/OS only counts toward PAS/DRI breadth when it
+clears **both** bars: **30+ minutes absolute** (`seconds(name) >= 1800` -
+you actually used it) **and 0.5%+ relative share** (`seconds(name) /
+seconds(all names of that kind) >= 0.005` - a real part of the mix). A pure
+relative bar would demand 18h of side-project time from a 900h user while
+crediting 24 seconds of noise to a 20-minute user; the absolute floor fixes
+the light end, the (small) share fixes the heavy end.
 
 ## Percentile -> rating
 
