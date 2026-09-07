@@ -100,6 +100,22 @@ Data used: frozen season tables (rank/value per day), `users.created_at`
 (join dates), `season_resets.archived_at` (season boundaries). No new
 tables, no migration. Icon = champion of 2+ past seasons under these rules.
 
+### Live season standings (dashboard drivers' table)
+
+`GET /api/season/standings` serves the title race as it stands today, same
+scoring as the frozen-season championship, computed over the live tables
+clamped to the current season. Columns:
+
+- **Pos / Driver / Pts** - F1-style position and total points.
+- **P1 / P2 / P3** - daily wins / second / third places (active days only).
+- **DNF** - synced days in your own window with zero time (capped-out days
+  that dilute your average; cron gaps you never synced don't count).
+- **Avg** - points per own-window day, the number that decides the title.
+- **Q** - title-qualified (7+ active days, 50% of own window).
+
+Ordered by Avg (then Pts, active days, user id) - P1 here takes the crown
+if the season ended today.
+
 ## Position
 
 Weighted blend of the 6 attributes, highest score wins:

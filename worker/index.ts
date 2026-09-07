@@ -1,6 +1,6 @@
 import { Env } from './types';
 import { exchangeCodeForToken, fetchWakaTimeUser, fetchPhotoData } from './wakatime';
-import { createOrUpdateUser, getLeaderboard, getWeeklyData, getAllUsers, deleteUser, banUser, unbanUser, getUserById, getLastSyncTime, getUserTooltipStats, getCompareStats, upsertUserPhoto, getCurrentSeason, getSeasonHistory, resetSeason, getUserSeasonHistory, getUserCard, getAllUserCards, CardScope } from './database';
+import { createOrUpdateUser, getLeaderboard, getWeeklyData, getAllUsers, deleteUser, banUser, unbanUser, getUserById, getLastSyncTime, getUserTooltipStats, getCompareStats, upsertUserPhoto, getCurrentSeason, getSeasonHistory, resetSeason, getUserSeasonHistory, getUserCard, getAllUserCards, getSeasonStandings, CardScope } from './database';
 import { createSession, verifySession, deleteSession, extractSessionId } from './session';
 import { fetchDataForAllUsers, fetchTodayDataForUser, fetchWeekDataForUser, fetchTodayDataForAllUsers, fetchWeekDataForAllUsers, fetchPhotosForAllUsers } from './fetcher';
 import { getProfileData } from './profile';
@@ -295,6 +295,16 @@ export default {
         return jsonResponse({
           scope,
           cards: cards.map((c) => ({ ...c, photo_url: photoUrlFor(request, c.user_id, c.photo_url) })),
+        }, 200, 0);
+      }
+
+      // Live season standings (F1-style drivers' table) - public, DB only
+      if (path === '/api/season/standings') {
+        const today = formatDate(getNepalDate());
+        const result = await getSeasonStandings(env, today);
+        return jsonResponse({
+          ...result,
+          standings: result.standings.map((s) => ({ ...s, photo_url: photoUrlFor(request, s.user_id, s.photo_url) })),
         }, 200, 0);
       }
 

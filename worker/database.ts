@@ -1657,6 +1657,124 @@ async function getSeasonChampionCounts(env: Env): Promise<Map<number, number>> {
   return counts;
 }
 
+export interface SeasonStanding {
+  pos: number;
+  user_id: number;
+  username: string;
+  display_name: string | null;
+  photo_url: string | null;
+  points: number;
+  avg: number; // points per own-window day (the title metric)
+  wins: number; // daily P1s
+  seconds: number; // daily P2s
+  thirds: number; // daily P3s
+  podiums: number;
+  dnfs: number; // synced days in own window with zero time
+  active_days: number;
+  window_days: number;
+  qualified: boolean;
+  score: number;
+}
+
+export interface SeasonStandingsResult {
+  season: number;
+  start_date: string | null;
+  today: string;
+  standings: SeasonStanding[];
+}
+
+/**
+ * Live F1-style drivers' table for the current season - the title race as
+ * it stands today. Same scoring as the frozen-season champion
+ * (F1 points per own-window day, same qualifier), computed over the live
+ * tables clamped to the current season. Ordered by title metric, so pos 1
+ * here is who would take the crown if the season ended today.
+ */
+export async function getSeasonStandings(env: Env, today: string): Promise<SeasonStandingsResult> {
+  const [season, startDate] = await Promise.all([getCurrentSeason(env), getCurrentSeasonStartDate(env)]);
+
+  const historyQuery = startDate
+    ? env.DB.prepare(`
+      SELECT user_id, period_start, rank, value
+      FROM leaderboard_history
+      WHERE period = 'day' AND metric = 'total' AND period_start >= ?
+      ORDER BY user_id, period_start
+    `).bind(startDate)
+    : env.DB.prepare(`
+      SELECT user_id, period_start, rank, value
+      FROM leaderboard_history
+      WHERE period = 'day' AND metric = 'total'
+      ORDER BY user_id, period_start
+    `);
+
+  const [usersRes, rowsRes] = await Promise.all([
+    env.DB.prepare(`
+      SELECT id, username, display_name, photo_url, created_at
+      FROM users WHERE is_banned = 0
+    `).all<{ id: number; username: string; display_name: string | null; photo_url: string | null; created_at: number }>(),
+    historyQuery.all<{ user_id: number; period_start: string; rank: number; value: number }>(),
+  ]);
+
+  const rowsByUser = new Map<number, Array<{ period_start: string; rank: number; value: number }>>();
+  for (const row of rowsRes.results || []) {
+    const list = rowsByUser.get(row.user_id) ?? [];
+    list.push({ period_start: row.period_start, rank: row.rank, value: row.value });
+    rowsByUser.set(row.user_id, list);
+  }
+
+  const entries: SeasonStanding[] = [];
+  for (const u of usersRes.results || []) {
+    const list = rowsByUser.get(u.id) ?? [];
+    const earliestRow = list.length > 0 ? list[0].period_start : today;
+    const joinStr = u.created_at ? nepalDateStr(u.created_at) : earliestRow;
+    const windowStart = startDate && startDate > joinStr ? startDate : joinStr;
+    const windowDays = windowDaysBetween(windowStart, today);
+
+    let points = 0, active = 0, wins = 0, p2 = 0, p3 = 0, dnfs = 0;
+    for (const r of list) {
+      if (r.period_start < windowStart || r.period_start > today) continue;
+      if ((r.value || 0) > 0) {
+        active += 1;
+        points += r.rank >= 1 && r.rank <= CHAMPION_POINTS_BY_RANK.length
+          ? CHAMPION_POINTS_BY_RANK[r.rank - 1]
+          : 0;
+        if (r.rank === 1) wins += 1;
+        else if (r.rank === 2) p2 += 1;
+        else if (r.rank === 3) p3 += 1;
+      } else {
+        dnfs += 1;
+      }
+    }
+
+    const score = windowDays > 0 ? points / windowDays : 0;
+    entries.push({
+      pos: 0,
+      user_id: u.id,
+      username: u.username,
+      display_name: u.display_name,
+      photo_url: u.photo_url,
+      points,
+      avg: Math.round(score * 100) / 100,
+      wins,
+      seconds: p2,
+      thirds: p3,
+      podiums: wins + p2 + p3,
+      dnfs,
+      active_days: active,
+      window_days: windowDays,
+      qualified: active >= CHAMPION_MIN_ACTIVE_DAYS && windowDays > 0 && active >= windowDays * CHAMPION_MIN_WINDOW_SHARE,
+      score,
+    });
+  }
+
+  entries.sort((a, b) =>
+    b.score - a.score || b.points - a.points || b.active_days - a.active_days || a.user_id - b.user_id
+  );
+  entries.forEach((e, i) => { e.pos = i + 1; });
+
+  return { season, start_date: startDate, today, standings: entries };
+}
+
 /** Computes every user's card in one pass - percentiles need the whole cohort anyway. */
 export async function computeCardsForAllUsers(env: Env, scope: CardScope, today: string): Promise<Map<number, UserCardAttributes>> {
   const raw = await getCardMetricsForAllUsers(env, scope, today);

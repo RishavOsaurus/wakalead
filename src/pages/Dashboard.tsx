@@ -6,6 +6,7 @@ import { Leaderboard } from '../components/Leaderboard';
 import { WeeklyChart } from '../components/WeeklyChart';
 import { AdminPanel } from '../components/AdminPanel';
 import { FutCardGallery } from '../components/FutCardGallery';
+import { SeasonStandings } from '../components/SeasonStandings';
 
 /**
  * User dropdown - keeps the action bar clean. Account info, Reconnect,
@@ -387,6 +388,9 @@ export function Dashboard() {
             />
           </div>
         </div>
+
+        {/* Season title race */}
+        <SeasonStandings />
 
         {/* FUT Cards gallery */}
         <FutCardGallery />

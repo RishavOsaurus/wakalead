@@ -229,6 +229,33 @@ export interface CompareStats {
   top_project: string | null;
 }
 
+/** One row of the live season standings (F1-style drivers' table). */
+export interface SeasonStanding {
+  pos: number;
+  user_id: number;
+  username: string;
+  display_name: string | null;
+  photo_url: string | null;
+  points: number;
+  avg: number;
+  wins: number;
+  seconds: number;
+  thirds: number;
+  podiums: number;
+  dnfs: number;
+  active_days: number;
+  window_days: number;
+  qualified: boolean;
+  score: number;
+}
+
+export interface SeasonStandings {
+  season: number;
+  start_date: string | null;
+  today: string;
+  standings: SeasonStanding[];
+}
+
 /** Full profile payload from GET /api/profile/:username */
 export interface ProfileData {
   user: ProfileUser;
@@ -338,6 +365,11 @@ class ApiClient {
   /** That user's aggregated stats for each past (archived) season. */
   async getUserSeasons(userId: number): Promise<{ seasons: UserSeasonStat[] }> {
     return this.request<{ seasons: UserSeasonStat[] }>(`/user/${userId}/seasons`);
+  }
+
+  /** Live season standings (F1-style drivers' table). */
+  async getSeasonStandings(): Promise<SeasonStandings> {
+    return this.request<SeasonStandings>('/season/standings');
   }
 
   async getProfile(username: string): Promise<ProfileData> {
