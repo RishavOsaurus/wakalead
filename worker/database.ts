@@ -1317,10 +1317,10 @@ interface RawUserCardMetrics {
   days_active: number;  // days with >= CARD_ACTIVE_SECONDS of total_seconds
   days_tracked: number; // days with any synced row at all
   longest_streak: number;
-  distinct_projects: number;
-  distinct_languages: number;
-  distinct_editors: number;
-  distinct_os: number;
+  distinct_projects: number; // projects at >= DIVERSITY_MIN_SHARE of project time
+  distinct_languages: number; // languages at >= DIVERSITY_MIN_SHARE of language time
+  distinct_editors: number; // editors at >= DIVERSITY_MIN_SHARE of editor time
+  distinct_os: number; // operating systems at >= DIVERSITY_MIN_SHARE of os time
   recentActivity: number;  // combined time_score + output_score, last 7 days
   priorActivity: number;   // combined time_score + output_score, the 7 days before that
   maxProjectSeconds: number; // total time on their single biggest project (in scope)
@@ -1353,6 +1353,7 @@ const PHY_RATING_FLOOR = 65;  // PHY specifically never drops below this, regard
 const CARD_MIN_DAYS_ACTIVE = 7; // below this, personally provisional - not enough data for a meaningful percentile
 const CARD_MIN_COHORT = 4; // below this many users with any data, percentile ranking is close to meaningless for everyone
 const CARD_ACTIVE_SECONDS = 40 * 60; // a day only counts toward DEF/PHY at 40+ active minutes, not just nonzero
+const DIVERSITY_MIN_SHARE = 0.02; // a project/language/editor/os only counts toward PAS/DRI breadth at 2%+ of that kind's time
 const FEATURED_STREAK_THRESHOLD = 5; // day_streak or week_streak > 5 triggers Featured Red
 
 /**
@@ -1381,9 +1382,20 @@ function rescale(percentile: number, floor: number = CARD_RATING_FLOOR): number 
   return Math.round(floor + percentile * (99 - floor));
 }
 
+/** Count of names holding at least DIVERSITY_MIN_SHARE of total seconds - breadth with a meaningful-use bar. */
+function countAboveShare(perNameSeconds: Map<string, number>): number {
+  let total = 0;
+  for (const s of perNameSeconds.values()) total += s;
+  if (total <= 0) return 0;
+  let n = 0;
+  for (const s of perNameSeconds.values()) {
+    if (s / total >= DIVERSITY_MIN_SHARE) n++;
+  }
+  return n;
+}
+
 /** Longest run of calendar-consecutive dates in a sorted, deduplicated date array. */
-function longestConsecutiveRun(sortedDates: string[]): number {
-  let longest = 0, run = 0, prev: string | null = null;
+function longestConsecutiveRun(sortedDates: string[]): number {  let longest = 0, run = 0, prev: string | null = null;
   for (const d of sortedDates) {
     run = prev && d === shiftDate(prev, 1) ? run + 1 : 1;
     if (run > longest) longest = run;
@@ -1476,29 +1488,29 @@ async function getCardMetricsForAllUsers(env: Env, scope: CardScope, today: stri
     ensure(userId).longest_streak = longestConsecutiveRun([...new Set(dates)].sort());
   }
 
-  const distinctSets = new Map<number, Record<'project' | 'language' | 'editor' | 'os', Set<string>>>();
-  const projectSecondsByUser = new Map<number, Map<string, number>>();
+  const kindSeconds = new Map<number, Record<'project' | 'language' | 'editor' | 'os', Map<string, number>>>();
   for (const row of breakdownRows.results) {
     const kind = row.kind as 'project' | 'language' | 'editor' | 'os';
-    const sets = distinctSets.get(row.user_id) ?? { project: new Set(), language: new Set(), editor: new Set(), os: new Set() };
-    sets[kind]?.add(row.name);
-    distinctSets.set(row.user_id, sets);
-
-    if (kind === 'project') {
-      const projects = projectSecondsByUser.get(row.user_id) ?? new Map<string, number>();
-      projects.set(row.name, (projects.get(row.name) ?? 0) + (row.seconds || 0));
-      projectSecondsByUser.set(row.user_id, projects);
+    let rec = kindSeconds.get(row.user_id);
+    if (!rec) {
+      rec = { project: new Map(), language: new Map(), editor: new Map(), os: new Map() };
+      kindSeconds.set(row.user_id, rec);
     }
+    const perName = rec[kind];
+    if (perName) perName.set(row.name, (perName.get(row.name) ?? 0) + (row.seconds || 0));
   }
-  for (const [userId, sets] of distinctSets) {
+  for (const [userId, rec] of kindSeconds) {
     const m = ensure(userId);
-    m.distinct_projects = sets.project.size;
-    m.distinct_languages = sets.language.size;
-    m.distinct_editors = sets.editor.size;
-    m.distinct_os = sets.os.size;
-  }
-  for (const [userId, projects] of projectSecondsByUser) {
-    ensure(userId).maxProjectSeconds = Math.max(0, ...projects.values());
+    // Breadth only counts names with a meaningful (>= 2%) share of that
+    // kind's time - a 10-second experiment in another editor no longer
+    // scores the same as daily-driving it.
+    m.distinct_projects = countAboveShare(rec.project);
+    m.distinct_languages = countAboveShare(rec.language);
+    m.distinct_editors = countAboveShare(rec.editor);
+    m.distinct_os = countAboveShare(rec.os);
+    // Biggest project stays a raw total (no share gate - it measures
+    // sustained commitment, not breadth).
+    m.maxProjectSeconds = Math.max(0, ...rec.project.values());
   }
 
   return byUser;
