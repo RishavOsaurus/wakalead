@@ -1,5 +1,5 @@
 import { Env } from './types';
-import { getUserTooltipStats } from './database';
+import { getUserDailyHistory, getUserTooltipStats } from './database';
 import {
   fetchWakaTimeUser,
   fetchWakaTimeAllTimeStats,
@@ -72,10 +72,10 @@ export async function getProfileData(env: Env, username: string) {
   const today = formatDate(getNepalDate());
   const db = await getUserTooltipStats(env, user.id, today);
 
-  const dailyRes = await env.DB.prepare(`
-    SELECT date, total_seconds, ai_seconds, human_seconds, ai_lines, human_lines
-    FROM daily_stats WHERE user_id = ? ORDER BY date DESC
-  `).bind(user.id).all<any>();
+  // First page of daily history only - the table pages through the rest via
+  // GET /api/user/:id/daily. The tooltip above already paid for the full
+  // aggregates; re-fetching all ~200 rows here just for the table doubled it.
+  const { daily, total: dailyTotal } = await getUserDailyHistory(env, user.id, 30, 0);
 
   const live = {
     ok: false,
@@ -125,7 +125,7 @@ export async function getProfileData(env: Env, username: string) {
       is_admin: user.is_admin === 1,
       created_at: user.created_at,
     },
-    db: { ...db, daily: dailyRes.results || [] },
+    db: { ...db, daily, daily_total: dailyTotal },
     live,
   };
 }

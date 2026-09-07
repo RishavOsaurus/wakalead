@@ -237,6 +237,8 @@ export function Profile() {
   const [card, setCard] = useState<UserCard | null>(null);
   const [cardLoading, setCardLoading] = useState(true);
   const [cardError, setCardError] = useState<string | null>(null);
+  const [dailyExtra, setDailyExtra] = useState<ProfileDailyRow[]>([]);
+  const [dailyLoadingMore, setDailyLoadingMore] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -245,6 +247,8 @@ export function Profile() {
     setRawOpen(false);
     setSeasonsOpen(false);
     setSeasons(null);
+    setDailyExtra([]);
+    setDailyLoadingMore(false);
     api
       .getProfile(cleanUsername)
       .then((d) => {
@@ -300,6 +304,23 @@ export function Profile() {
   const hasAiTokens = !!db && (db.ai_tokens.input > 0 || db.ai_tokens.output > 0 || db.ai_tokens.sessions > 0);
 
   const name = data?.user.display_name || data?.user.username || cleanUsername;
+
+  const dailyRows = [...(db?.daily ?? []), ...dailyExtra];
+  const dailyTotal = db?.daily_total ?? db?.daily.length ?? 0;
+  const hasMoreDaily = dailyRows.length < dailyTotal;
+
+  const showMoreDaily = async () => {
+    if (!data || dailyLoadingMore || !hasMoreDaily) return;
+    setDailyLoadingMore(true);
+    try {
+      const result = await api.getProfileDaily(data.user.user_id, 30, dailyRows.length);
+      setDailyExtra((prev) => [...prev, ...result.daily]);
+    } catch (err) {
+      console.error('Error loading more daily history:', err);
+    } finally {
+      setDailyLoadingMore(false);
+    }
+  };
 
   const toggleSeasons = async () => {
     const next = !seasonsOpen;
@@ -608,8 +629,17 @@ export function Profile() {
             </Section>
 
             {/* Daily history */}
-            <Section title="Daily history" subtitle={`${db.daily.length} synced day(s)`}>
-              <DailyTable rows={db.daily} />
+            <Section title="Daily history" subtitle={`${dailyTotal} synced day(s)`}>
+              <DailyTable rows={dailyRows} />
+              {hasMoreDaily && (
+                <button
+                  onClick={showMoreDaily}
+                  disabled={dailyLoadingMore}
+                  className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-zinc-400 bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {dailyLoadingMore ? 'Loading…' : `Show more (${dailyTotal - dailyRows.length} older)`}
+                </button>
+              )}
             </Section>
 
             {/* Past seasons archive */}

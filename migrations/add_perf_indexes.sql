@@ -19,6 +19,17 @@ CREATE INDEX IF NOT EXISTS idx_fetch_log_user_date_status
 CREATE INDEX IF NOT EXISTS idx_fetch_log_user_type_status
     ON fetch_log(user_id, fetch_type, status, fetched_at);
 
+-- recentFetch filters (user_id, fetch_type, fetched_at range): the
+-- two-column prefix above only covers user_id, so each call scans the
+-- user's whole fetch_log slice. This covers the range properly.
+CREATE INDEX IF NOT EXISTS idx_fetch_log_user_type_fetched
+    ON fetch_log(user_id, fetch_type, fetched_at);
+
+-- getLastSyncTime: MAX(fetched_at) over status='success' on every
+-- dashboard load. Resolves from the index tail, no table scan.
+CREATE INDEX IF NOT EXISTS idx_fetch_log_status_fetched
+    ON fetch_log(status, fetched_at);
+
 -- Card-metrics aggregation: GROUP BY user_id, kind, name with SUM(seconds).
 CREATE INDEX IF NOT EXISTS idx_breakdown_user_kind_name
     ON user_stat_breakdown(user_id, kind, name, seconds);

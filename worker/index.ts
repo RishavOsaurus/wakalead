@@ -1,6 +1,6 @@
 import { Env } from './types';
 import { exchangeCodeForToken, fetchWakaTimeUser, fetchPhotoData } from './wakatime';
-import { createOrUpdateUser, getLeaderboard, getWeeklyData, getAllUsers, deleteUser, banUser, unbanUser, getUserById, getLastSyncTime, getUserTooltipStats, getCompareStats, upsertUserPhoto, getCurrentSeason, getSeasonHistory, resetSeason, getUserSeasonHistory, getUserCard, getAllUserCards, getSeasonStandings, CardScope } from './database';
+import { createOrUpdateUser, getLeaderboard, getWeeklyData, getAllUsers, deleteUser, banUser, unbanUser, getUserById, getLastSyncTime, getUserTooltipStats, getCompareStats, upsertUserPhoto, getCurrentSeason, getSeasonHistory, resetSeason, getUserSeasonHistory, getUserCard, getAllUserCards, getSeasonStandings, getRankOneStats, getUserDailyHistory, invalidateCardCache, pruneFetchLog, CardScope } from './database';
 import { createSession, verifySession, deleteSession, extractSessionId } from './session';
 import { fetchDataForAllUsers, fetchTodayDataForUser, fetchWeekDataForUser, fetchTodayDataForAllUsers, fetchWeekDataForAllUsers, fetchPhotosForAllUsers } from './fetcher';
 import { getProfileData } from './profile';
@@ -52,6 +52,10 @@ function errorResponse(message: string, status = 400) {
   return jsonResponse({ error: message }, status);
 }
 
+// Minimum gap between two full week re-syncs (POST /api/refresh-all).
+// One run costs ~1k D1 writes plus a WakaTime API storm per user.
+const REFRESH_ALL_COOLDOWN_MS = 30 * 60 * 1000;
+
 /**
  * Rewrite a stored WakaTime/Gravatar photo URL to our own photo endpoint so
  * the browser never pings WakaTime for avatars. Photos are served from D1.
@@ -87,7 +91,13 @@ export default {
    * stats for all users plus their all-time lifetime totals).
    */
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(fetchDataForAllUsers(env));
+    ctx.waitUntil(
+      (async () => {
+        await fetchDataForAllUsers(env);
+        await invalidateCardCache(env);
+        await pruneFetchLog(env);
+      })()
+    );
   },
 
   /**
@@ -261,10 +271,13 @@ export default {
         const weekStart = dates[0]; // 7 days ago
         const weekEnd = dates[dates.length - 1]; // today
 
-        // Fetch all data in parallel
+        // Fetch all data in parallel. The today and week boards share one
+        // rank-one computation (same metric, same day) instead of each
+        // redoing the full history scan.
+        const rankOneStats = await getRankOneStats(env, metric, today);
         const [todayLeaderboard, weekLeaderboard, weeklyData, lastSynced] = await Promise.all([
-          getLeaderboard(env, today, today, metric, today),
-          getLeaderboard(env, weekStart, weekEnd, metric, today),
+          getLeaderboard(env, today, today, metric, today, rankOneStats),
+          getLeaderboard(env, weekStart, weekEnd, metric, today, rankOneStats),
           getWeeklyData(env, dates),
           getLastSyncTime(env),
         ]);
@@ -351,6 +364,15 @@ export default {
         return jsonResponse({ ...stats, photo_url: photoUrlFor(request, stats.user_id, stats.photo_url) }, 200, 0);
       }
 
+      // Paginated daily history for the profile Daily-table (newest first).
+      if (path.match(/^\/api\/user\/\d+\/daily$/)) {
+        const userId = parseInt(path.split('/')[3]);
+        const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 30, 1), 100);
+        const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
+        const history = await getUserDailyHistory(env, userId, limit, offset);
+        return jsonResponse(history, 200, 0);
+      }
+
       // Avatar image - served from our DB so WakaTime is never pinged for
       // photos anywhere except the profile page's live data fetch.
       if (path.match(/^\/api\/user\/\d+\/photo$/)) {
@@ -400,9 +422,28 @@ export default {
 
       if (path === '/api/refresh-all' && request.method === 'POST') {
         // Refresh week's data for all users from WakaTime API
-        // Only available to logged-in users
+        // Only available to logged-in users. Server-side cooldown: a full
+        // week re-sync costs ~1k D1 writes plus a WakaTime storm per user,
+        // so at most one run per window no matter how often Sync is clicked.
         try {
+          const now = Date.now();
+          const last = await env.SESSIONS.get('refresh_all_at');
+          if (last && now - Number(last) < REFRESH_ALL_COOLDOWN_MS) {
+            const retryAfterSeconds = Math.ceil(
+              (REFRESH_ALL_COOLDOWN_MS - (now - Number(last))) / 1000
+            );
+            return jsonResponse(
+              {
+                success: false,
+                error: `Synced recently - try again in ${Math.ceil(retryAfterSeconds / 60)} min`,
+                retryAfterSeconds,
+              },
+              429
+            );
+          }
+          await env.SESSIONS.put('refresh_all_at', String(now));
           await fetchWeekDataForAllUsers(env);
+          await invalidateCardCache(env);
           return new Response(JSON.stringify({ success: true, message: 'Week data refreshed for all users' }), {
             status: 200,
             headers: {
@@ -529,6 +570,7 @@ export default {
           }
           const useToday = url.searchParams.get('today') === 'true';
           await fetchDataForAllUsers(env, useToday, dateParam || undefined);
+          await invalidateCardCache(env);
           return jsonResponse({ success: true, message: `Data fetch initiated for ${dateParam || (useToday ? 'today' : 'yesterday')}` });
         }
 
@@ -545,6 +587,7 @@ export default {
           // under a "_season_N" suffix and starts fresh. Users, photos, and
           // each user's real WakaTime lifetime total are left untouched.
           const result = await resetSeason(env, user.id);
+          await invalidateCardCache(env);
           return jsonResponse({ success: true, ...result });
         }
       }

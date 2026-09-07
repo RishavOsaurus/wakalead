@@ -257,7 +257,7 @@ export interface SeasonStandings {
 /** Full profile payload from GET /api/profile/:username */
 export interface ProfileData {
   user: ProfileUser;
-  db: TooltipStats & { daily: ProfileDailyRow[] };
+  db: TooltipStats & { daily: ProfileDailyRow[]; daily_total: number };
   live: ProfileLiveData;
 }
 
@@ -372,6 +372,15 @@ class ApiClient {
 
   async getProfile(username: string): Promise<ProfileData> {
     return this.request<ProfileData>(`/profile/${encodeURIComponent(username)}`);
+  }
+
+  /** One page of a user's daily history (newest first) for the profile Daily-table. */
+  async getProfileDaily(
+    userId: number,
+    limit = 30,
+    offset = 0
+  ): Promise<{ daily: ProfileDailyRow[]; total: number }> {
+    return this.request(`/user/${userId}/daily?limit=${limit}&offset=${offset}`);
   }
 
   // Admin endpoints

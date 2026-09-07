@@ -195,13 +195,16 @@ export async function upsertUserStats(
 /**
  * Get leaderboard for a date range. When `today` is provided, each entry is
  * annotated with rank-one consistency/streak stats (batch-loaded, no N+1).
+ * Pass a precomputed `rankOneStats` (e.g. shared between the today and week
+ * boards of one dashboard render) to skip the redundant recomputation.
  */
 export async function getLeaderboard(
   env: Env,
   startDate: string,
   endDate: string,
   metric: LeaderboardMetric = 'total',
-  today?: string
+  today?: string,
+  rankOneStats?: Map<number, RankOneStats>
 ) {
   const orderColumn = METRIC_COLUMNS[metric];
 
@@ -238,7 +241,7 @@ export async function getLeaderboard(
 
   // Rank-one stats are per-user, so they apply to both day and week boards.
   if (today) {
-    const stats = await getRankOneStats(env, metric, today);
+    const stats = rankOneStats ?? (await getRankOneStats(env, metric, today));
     for (const entry of entries) {
       const s = stats.get(entry.user_id);
       entry.days_at_rank_one = s?.days_at_rank_one ?? 0;
@@ -331,6 +334,19 @@ export async function logFetch(
     INSERT INTO fetch_log (user_id, fetch_type, fetch_date, status, error_message, fetched_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).bind(userId, fetchType, fetchDate, status, errorMessage || null, Date.now()).run();
+}
+
+/** How long fetch_log rows are kept - readers only ever look back hours/days. */
+export const FETCH_LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Delete fetch_log rows older than the retention window. Runs on the daily
+ * cron - without this the table (and every COUNT/MAX over it) grows forever.
+ */
+export async function pruneFetchLog(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `DELETE FROM fetch_log WHERE fetched_at < ?`
+  ).bind(Date.now() - FETCH_LOG_RETENTION_MS).run();
 }
 
 /**
@@ -655,6 +671,44 @@ function sumAggregates(rows: any[]): CompareAggregates {
   }
   out.total_lines = out.human_lines + out.ai_lines;
   return out;
+}
+
+/** One page of a user's daily history (newest first) plus the total day count. */
+export interface UserDailyHistory {
+  daily: Array<{
+    date: string;
+    total_seconds: number;
+    ai_seconds: number;
+    human_seconds: number;
+    ai_lines: number;
+    human_lines: number;
+  }>;
+  total: number;
+}
+
+/**
+ * Paginated daily history for the profile Daily-table. Both statements hit
+ * idx_daily_stats_user_date - the page itself plus a cheap COUNT for the
+ * "N synced days" subtitle and the show-more button.
+ */
+export async function getUserDailyHistory(
+  env: Env,
+  userId: number,
+  limit: number,
+  offset: number
+): Promise<UserDailyHistory> {
+  const safeLimit = Math.min(Math.max(limit || 30, 1), 100);
+  const safeOffset = Math.max(offset || 0, 0);
+  const [dailyRes, countRes] = await Promise.all([
+    env.DB.prepare(`
+      SELECT date, total_seconds, ai_seconds, human_seconds, ai_lines, human_lines
+      FROM daily_stats WHERE user_id = ? ORDER BY date DESC LIMIT ? OFFSET ?
+    `).bind(userId, safeLimit, safeOffset).all<UserDailyHistory['daily'][number]>(),
+    env.DB.prepare(
+      `SELECT COUNT(*) as count FROM daily_stats WHERE user_id = ?`
+    ).bind(userId).first<{ count: number }>(),
+  ]);
+  return { daily: dailyRes.results || [], total: countRes?.count ?? 0 };
 }
 
 /**
@@ -1084,6 +1138,8 @@ const SEASON_RESET_TABLES: ResettableTable[] = [
       { name: 'idx_fetch_log_user_date', sql: 'CREATE INDEX idx_fetch_log_user_date ON fetch_log(user_id, fetch_date)' },
       { name: 'idx_fetch_log_user_date_status', sql: 'CREATE INDEX idx_fetch_log_user_date_status ON fetch_log(user_id, fetch_date, status)' },
       { name: 'idx_fetch_log_user_type_status', sql: 'CREATE INDEX idx_fetch_log_user_type_status ON fetch_log(user_id, fetch_type, status, fetched_at)' },
+      { name: 'idx_fetch_log_user_type_fetched', sql: 'CREATE INDEX idx_fetch_log_user_type_fetched ON fetch_log(user_id, fetch_type, fetched_at)' },
+      { name: 'idx_fetch_log_status_fetched', sql: 'CREATE INDEX idx_fetch_log_status_fetched ON fetch_log(status, fetched_at)' },
     ],
   },
   {
@@ -1856,20 +1912,22 @@ export async function computeCardsForAllUsers(env: Env, scope: CardScope, today:
   return cards;
 }
 
-const CARD_CACHE_TTL_SECONDS = 60;
+const CARD_CACHE_TTL_SECONDS = 3600;
+const CARD_CACHE_PREFIX = 'card_cache:';
 
 /**
  * Percentile ranking needs the whole cohort recomputed together, and both
  * getUserCard and getAllUserCards need that same computation - cached here
  * (reusing the SESSIONS KV namespace under its own key prefix, rather than
  * provisioning a new KV namespace for one small cache) so a burst of
- * requests (e.g. the gallery + several profile views) within the same
- * minute doesn't each redo the full per-user aggregation from scratch.
- * Short TTL - underlying data only changes on sync/reset, not every
- * second, so up to 60s of staleness is an easy trade for the savings.
+ * requests (e.g. the gallery + several profile views) doesn't each redo
+ * the full per-user aggregation from scratch. Long TTL - underlying data
+ * only changes on sync/reset, and every sync/reset path calls
+ * invalidateCardCache below, so the cache is dropped exactly when fresh
+ * data lands instead of expiring on a timer.
  */
 async function getCachedCardsForAllUsers(env: Env, scope: CardScope, today: string): Promise<Map<number, UserCardAttributes>> {
-  const cacheKey = `card_cache:${scope}:${today}`;
+  const cacheKey = `${CARD_CACHE_PREFIX}${scope}:${today}`;
   const cached = await env.SESSIONS.get(cacheKey, 'json') as Record<string, UserCardAttributes> | null;
   if (cached) {
     return new Map(Object.entries(cached).map(([id, attrs]) => [Number(id), attrs]));
@@ -1880,6 +1938,20 @@ async function getCachedCardsForAllUsers(env: Env, scope: CardScope, today: stri
     expirationTtl: CARD_CACHE_TTL_SECONDS,
   });
   return cards;
+}
+
+/**
+ * Drop every cached card computation (all scopes/days). Called by every
+ * path that lands fresh data (week refresh, fetch-now, season reset) so
+ * the long card TTL never serves stale numbers after a sync.
+ */
+export async function invalidateCardCache(env: Env): Promise<void> {
+  let cursor: string | undefined;
+  do {
+    const page = await env.SESSIONS.list({ prefix: CARD_CACHE_PREFIX, cursor });
+    await Promise.all(page.keys.map((k) => env.SESSIONS.delete(k.name)));
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
 }
 
 export async function getUserCard(env: Env, userId: number, scope: CardScope, today: string): Promise<UserCardAttributes | null> {

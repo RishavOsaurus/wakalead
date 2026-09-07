@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS fetch_log (
 CREATE INDEX IF NOT EXISTS idx_fetch_log_user_date ON fetch_log(user_id, fetch_date);
 CREATE INDEX IF NOT EXISTS idx_fetch_log_user_date_status ON fetch_log(user_id, fetch_date, status);
 CREATE INDEX IF NOT EXISTS idx_fetch_log_user_type_status ON fetch_log(user_id, fetch_type, status, fetched_at);
+CREATE INDEX IF NOT EXISTS idx_fetch_log_user_type_fetched ON fetch_log(user_id, fetch_type, fetched_at);
+CREATE INDEX IF NOT EXISTS idx_fetch_log_status_fetched ON fetch_log(status, fetched_at);
 
 -- User stats table - aggregated metadata for personalized comments
 -- Top language/editor/project parsed from summaries, lifetime time from

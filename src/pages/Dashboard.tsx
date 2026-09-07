@@ -113,6 +113,7 @@ export function Dashboard() {
   const [lastSynced, setLastSynced] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'today' | 'week'>('today');
   const [metric, setMetric] = useState<Metric>('total');
 
@@ -124,7 +125,14 @@ export function Dashboard() {
     try {
       if (forceRefresh) {
         setRefreshing(true);
-        await api.refreshAll();
+        setSyncNotice(null);
+        try {
+          await api.refreshAll();
+        } catch (refreshError: any) {
+          // 429 when a sync ran recently - still reload the dashboard so
+          // the view is fresh, but tell the user why no new sync happened.
+          setSyncNotice(refreshError?.message || 'Sync skipped');
+        }
       } else {
         setLoading(true);
       }
@@ -285,6 +293,12 @@ export function Dashboard() {
                   </svg>
                   {refreshing ? 'Syncing...' : 'Sync'}
                 </button>
+
+                {syncNotice && (
+                  <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                    {syncNotice}
+                  </span>
+                )}
 
                 <button
                   onClick={() => navigate('/compare')}
