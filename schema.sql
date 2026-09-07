@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS fetch_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_fetch_log_user_date ON fetch_log(user_id, fetch_date);
+CREATE INDEX IF NOT EXISTS idx_fetch_log_user_date_status ON fetch_log(user_id, fetch_date, status);
+CREATE INDEX IF NOT EXISTS idx_fetch_log_user_type_status ON fetch_log(user_id, fetch_type, status, fetched_at);
 
 -- User stats table - aggregated metadata for personalized comments
 -- Top language/editor/project parsed from summaries, lifetime time from
@@ -85,6 +87,9 @@ CREATE TABLE IF NOT EXISTS user_stat_breakdown (
 
 CREATE INDEX IF NOT EXISTS idx_breakdown_user_kind ON user_stat_breakdown(user_id, kind);
 CREATE INDEX IF NOT EXISTS idx_breakdown_user_date ON user_stat_breakdown(user_id, date);
+-- Covering index for the card-metrics aggregation
+-- (GROUP BY user_id, kind, name with SUM(seconds)).
+CREATE INDEX IF NOT EXISTS idx_breakdown_user_kind_name ON user_stat_breakdown(user_id, kind, name, seconds);
 
 -- AI model usage per day (line changes + estimated cost), from
 -- summaries grand_total.ai_model_breakdown
@@ -130,6 +135,13 @@ CREATE INDEX IF NOT EXISTS idx_leaderboard_history_period_metric_rank
     ON leaderboard_history(period, metric, rank);
 CREATE INDEX IF NOT EXISTS idx_leaderboard_history_period_metric_start
     ON leaderboard_history(period, metric, period_start);
+-- Covering indexes for the rank-one / streak reads: rank-filtered counts
+-- (period, metric, rank, ...) and recency-range scans (period, metric,
+-- period_start, ...) resolve straight from the index, no table lookups.
+CREATE INDEX IF NOT EXISTS idx_leaderboard_history_rank_cover
+    ON leaderboard_history(period, metric, rank, value, user_id, period_start);
+CREATE INDEX IF NOT EXISTS idx_leaderboard_history_start_cover
+    ON leaderboard_history(period, metric, period_start, user_id, rank, value);
 
 -- User avatar image bytes, downloaded from WakaTime/Gravatar so the browser
 -- never hits WakaTime for photos. Served via GET /api/user/:id/photo.

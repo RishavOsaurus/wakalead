@@ -342,12 +342,13 @@ export async function wasFetchedToday(
   date: string
 ): Promise<boolean> {
   const result = await env.DB.prepare(
-    `SELECT COUNT(*) as count
+    `SELECT 1 as one
     FROM fetch_log
-    WHERE user_id = ? AND fetch_date = ? AND status = 'success'`
-  ).bind(userId, date).first<{ count: number }>();
+    WHERE user_id = ? AND fetch_date = ? AND status = 'success'
+    LIMIT 1`
+  ).bind(userId, date).first<{ one: number }>();
 
-  return (result?.count || 0) > 0;
+  return !!result;
 }
 
 /**
@@ -361,12 +362,13 @@ export async function recentFetch(
   sinceTs: number
 ): Promise<boolean> {
   const result = await env.DB.prepare(
-    `SELECT COUNT(*) as count
+    `SELECT 1 as one
     FROM fetch_log
-    WHERE user_id = ? AND fetch_type = ? AND status = 'success' AND fetched_at >= ?`
-  ).bind(userId, fetchType, sinceTs).first<{ count: number }>();
+    WHERE user_id = ? AND fetch_type = ? AND status = 'success' AND fetched_at >= ?
+    LIMIT 1`
+  ).bind(userId, fetchType, sinceTs).first<{ one: number }>();
 
-  return (result?.count || 0) > 0;
+  return !!result;
 }
 
 /**
@@ -668,19 +670,34 @@ export async function getCompareStats(
   if (!user) return null;
 
   const tooltip = await getUserTooltipStats(env, userId, today);
+  if (!tooltip) return null;
 
-  const dailyRes = await env.DB.prepare(`
-    SELECT date, total_seconds, ai_seconds, human_seconds, ai_lines, human_lines
-    FROM daily_stats WHERE user_id = ? ORDER BY date
-  `).bind(userId).all<any>();
-  const rows: any[] = dailyRes.results || [];
-
-  const todayRows = rows.filter((r) => r.date === today);
+  // Daily/weekly buckets are tiny range aggregates in SQL - previously this
+  // re-fetched the user's entire daily_stats history (already loaded once
+  // inside getUserTooltipStats) and filtered in JS.
   const weekStart = shiftDate(today, -6);
-  const weekRows = rows.filter((r) => r.date >= weekStart && r.date <= today);
+  const [todayAgg, weekAgg] = await Promise.all([
+    env.DB.prepare(`
+      SELECT COALESCE(SUM(total_seconds), 0) as total_seconds,
+             COALESCE(SUM(ai_seconds), 0) as ai_seconds,
+             COALESCE(SUM(human_seconds), 0) as human_seconds,
+             COALESCE(SUM(ai_lines), 0) as ai_lines,
+             COALESCE(SUM(human_lines), 0) as human_lines
+      FROM daily_stats WHERE user_id = ? AND date = ?
+    `).bind(userId, today).first<any>(),
+    env.DB.prepare(`
+      SELECT COALESCE(SUM(total_seconds), 0) as total_seconds,
+             COALESCE(SUM(ai_seconds), 0) as ai_seconds,
+             COALESCE(SUM(human_seconds), 0) as human_seconds,
+             COALESCE(SUM(ai_lines), 0) as ai_lines,
+             COALESCE(SUM(human_lines), 0) as human_lines
+      FROM daily_stats WHERE user_id = ? AND date >= ? AND date <= ?
+    `).bind(userId, weekStart, today).first<any>(),
+  ]);
 
-  const daysTracked = rows.length;
-  const daysActive = tooltip?.aggregates.days_active ?? 0;
+  const agg = tooltip.aggregates;
+  const daysTracked = agg.days_tracked;
+  const daysActive = agg.days_active;
   const topModel = tooltip?.ai_models[0] ?? null;
 
   return {
@@ -688,9 +705,16 @@ export async function getCompareStats(
     username: user.username,
     display_name: user.display_name,
     photo_url: user.photo_url,
-    daily: sumAggregates(todayRows),
-    weekly: sumAggregates(weekRows),
-    all_time: sumAggregates(rows),
+    daily: sumAggregates([todayAgg ?? {}]),
+    weekly: sumAggregates([weekAgg ?? {}]),
+    all_time: {
+      total_seconds: agg.total_seconds,
+      human_seconds: agg.human_seconds,
+      ai_seconds: agg.ai_seconds,
+      human_lines: agg.human_lines,
+      ai_lines: agg.ai_lines,
+      total_lines: agg.human_lines + agg.ai_lines,
+    },
     all_time_wakatime: tooltip?.all_time_seconds || 0,
     days_tracked: daysTracked,
     days_active: daysActive,
@@ -710,8 +734,9 @@ export async function getCompareStats(
 
 /**
  * Rank all non-banned users for a period and store the result into
- * `leaderboard_history`. One window-function-free ranked query per metric
- * (ranking done in JS over a deterministic ORDER BY), batched upserts.
+ * `leaderboard_history`. One range query fetching all four metric sums at
+ * once (ranking done in JS over a deterministic ORDER BY per metric), then
+ * batched upserts - 1 read + 4 batched writes per period instead of 4 reads.
  *
  * `period` 'day'  -> the anchor date itself.
  * `period` 'week' -> trailing 7-day window [anchor-6, anchor].
@@ -722,49 +747,60 @@ async function computeAndStorePeriod(
   anchorDate: string
 ): Promise<void> {
   const metrics: LeaderboardMetric[] = ['total', 'human', 'ai', 'lines'];
+  const valueKey: Record<LeaderboardMetric, 'total_value' | 'human_value' | 'ai_value' | 'lines_value'> = {
+    total: 'total_value',
+    human: 'human_value',
+    ai: 'ai_value',
+    lines: 'lines_value',
+  };
+
+  const sql =
+    period === 'day'
+      ? `
+        SELECT
+          u.id as user_id,
+          COALESCE(SUM(ds.total_seconds), 0) as total_value,
+          COALESCE(SUM(ds.human_seconds), 0) as human_value,
+          COALESCE(SUM(ds.ai_seconds), 0) as ai_value,
+          COALESCE(SUM(ds.ai_lines), 0) as lines_value
+        FROM users u
+        LEFT JOIN daily_stats ds ON u.id = ds.user_id AND ds.date = ?
+        WHERE u.is_banned = 0
+        GROUP BY u.id
+      `
+      : `
+        SELECT
+          u.id as user_id,
+          COALESCE(SUM(ds.total_seconds), 0) as total_value,
+          COALESCE(SUM(ds.human_seconds), 0) as human_value,
+          COALESCE(SUM(ds.ai_seconds), 0) as ai_value,
+          COALESCE(SUM(ds.ai_lines), 0) as lines_value
+        FROM users u
+        LEFT JOIN daily_stats ds ON u.id = ds.user_id
+          AND ds.date >= date(?, '-6 day') AND ds.date <= ?
+        WHERE u.is_banned = 0
+        GROUP BY u.id
+      `;
+
+  const stmt =
+    period === 'day'
+      ? env.DB.prepare(sql).bind(anchorDate)
+      : env.DB.prepare(sql).bind(anchorDate, anchorDate);
+
+  const results = await stmt.all<{ user_id: number; total_value: number; human_value: number; ai_value: number; lines_value: number }>();
 
   for (const metric of metrics) {
-    const column = METRIC_COLUMNS[metric];
+    const key = valueKey[metric];
+    const ranked = [...results.results].sort((a, b) => b[key] - a[key] || a.user_id - b.user_id);
 
-    const sql =
-      period === 'day'
-        ? `
-          SELECT
-            u.id as user_id,
-            COALESCE(SUM(ds.${column}), 0) as metric_value
-          FROM users u
-          LEFT JOIN daily_stats ds ON u.id = ds.user_id AND ds.date = ?
-          WHERE u.is_banned = 0
-          GROUP BY u.id
-          ORDER BY metric_value DESC, u.id
-        `
-        : `
-          SELECT
-            u.id as user_id,
-            COALESCE(SUM(ds.${column}), 0) as metric_value
-          FROM users u
-          LEFT JOIN daily_stats ds ON u.id = ds.user_id
-            AND ds.date >= date(?, '-6 day') AND ds.date <= ?
-          WHERE u.is_banned = 0
-          GROUP BY u.id
-          ORDER BY metric_value DESC, u.id
-        `;
-
-    const stmt =
-      period === 'day'
-        ? env.DB.prepare(sql).bind(anchorDate)
-        : env.DB.prepare(sql).bind(anchorDate, anchorDate);
-
-    const results = await stmt.all<{ user_id: number; metric_value: number }>();
-
-    const statements: ReturnType<Env['DB']['prepare']>[] = results.results.map(
+    const statements: ReturnType<Env['DB']['prepare']>[] = ranked.map(
       (row, index) =>
         env.DB.prepare(`
           INSERT INTO leaderboard_history (user_id, period_start, period, metric, rank, value)
           VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT(user_id, period_start, period, metric) DO UPDATE SET
             rank = excluded.rank, value = excluded.value
-        `).bind(row.user_id, anchorDate, period, metric, index + 1, row.metric_value)
+        `).bind(row.user_id, anchorDate, period, metric, index + 1, row[key])
     );
 
     if (statements.length > 0) {
@@ -876,7 +912,15 @@ export async function getRankOneStats(
   // each calendar week holds up to 7 rolling "week" snapshots (one per day),
   // so we collapse them to the week's final-day snapshot - whose 7-day window
   // exactly equals that calendar week - and only count rank 1 there.
-  const [dayCounts, weekCounts] = await Promise.all([
+  //
+  // Optimized: no window function over full history. Past weeks can only be
+  // represented by their Sunday snapshot (Sunday is the last day of a
+  // Mon-Sun week, so the latest snapshot of a past week IS its Sunday - a
+  // week whose Sunday sync was missed stays uncounted, same as before).
+  // The in-progress current week is handled separately via its latest
+  // snapshot (<= 7 rows per user). Both inputs are tiny vs. users x days.
+  const monday = mondayOf(today);
+  const [dayCounts, pastWeekCounts, currentWeekLatest] = await Promise.all([
     env.DB.prepare(`
       SELECT user_id, COUNT(*) as count
       FROM leaderboard_history
@@ -885,49 +929,54 @@ export async function getRankOneStats(
     `).bind(metric).all<{ user_id: number; count: number }>(),
     env.DB.prepare(`
       SELECT user_id, COUNT(*) as count
-      FROM (
-        SELECT user_id, period_start, rank, value,
-          ROW_NUMBER() OVER (
-            PARTITION BY user_id, strftime('%Y-%W', period_start)
-            ORDER BY period_start DESC
-          ) AS rn
-        FROM leaderboard_history
-        WHERE period = 'week' AND metric = ?
-      )
-      WHERE rn = 1 AND rank = 1 AND value > 0
-        -- Only trust this week's representative if it's the still-in-progress
-        -- current week (any snapshot is a fine live proxy) or it actually
-        -- closed out on that week's Sunday (the only day whose trailing
-        -- 7-day window exactly equals a Mon-Sun calendar week). A week whose
-        -- Sunday sync was missed (cron gap) is left uncounted instead of
-        -- silently using a mismatched window.
-        AND (
-          strftime('%w', period_start) = '0'
-          OR strftime('%Y-%W', period_start) = strftime('%Y-%W', ?)
-        )
+      FROM leaderboard_history
+      WHERE period = 'week' AND metric = ? AND rank = 1 AND value > 0
+        AND strftime('%w', period_start) = '0'
+        AND period_start < ?
       GROUP BY user_id
-    `).bind(metric, today).all<{ user_id: number; count: number }>(),
+    `).bind(metric, monday).all<{ user_id: number; count: number }>(),
+    env.DB.prepare(`
+      SELECT user_id, period_start, rank, value
+      FROM leaderboard_history
+      WHERE period = 'week' AND metric = ? AND period_start >= ?
+      ORDER BY user_id, period_start DESC
+    `).bind(metric, monday).all<{ user_id: number; period_start: string; rank: number; value: number }>(),
   ]);
 
   for (const row of dayCounts.results) ensure(row.user_id).days_at_rank_one = row.count;
-  for (const row of weekCounts.results) ensure(row.user_id).weeks_at_rank_one = row.count;
+  for (const row of pastWeekCounts.results) ensure(row.user_id).weeks_at_rank_one = row.count;
+  // currentWeekLatest is ordered newest-first per user, so the first row seen
+  // per user is that week's representative live proxy.
+  const seenCurrentWeek = new Set<number>();
+  for (const row of currentWeekLatest.results) {
+    if (seenCurrentWeek.has(row.user_id)) continue;
+    seenCurrentWeek.add(row.user_id);
+    if (row.rank === 1 && row.value > 0) {
+      ensure(row.user_id).weeks_at_rank_one += 1;
+    }
+  }
 
   // Streak computation - only need the recent window (a 120-day guard bounds
-  // the fetch; streaks beyond that are absurd anyway).
+  // the fetch; streaks beyond that are absurd anyway). Day streaks only need
+  // rank-1 rows (~users-fold fewer rows); week streaks only need one
+  // representative per past week (Sundays) plus the current week - non-Sunday
+  // past snapshots are ignored by the JS below anyway.
   const since = shiftDate(today, -120);
   const [dayHistory, weekHistory] = await Promise.all([
     env.DB.prepare(`
       SELECT user_id, period_start, rank, value
       FROM leaderboard_history
       WHERE period = 'day' AND metric = ? AND period_start >= ?
+        AND rank = 1 AND value > 0
       ORDER BY user_id, period_start
     `).bind(metric, since).all<{ user_id: number; period_start: string; rank: number; value: number }>(),
     env.DB.prepare(`
       SELECT user_id, period_start, rank, value
       FROM leaderboard_history
       WHERE period = 'week' AND metric = ? AND period_start >= ?
+        AND (strftime('%w', period_start) = '0' OR period_start >= ?)
       ORDER BY user_id, period_start
-    `).bind(metric, since).all<{ user_id: number; period_start: string; rank: number; value: number }>(),
+    `).bind(metric, since, monday).all<{ user_id: number; period_start: string; rank: number; value: number }>(),
   ]);
 
   const rankOneDays = new Map<number, string[]>();
@@ -1033,6 +1082,8 @@ const SEASON_RESET_TABLES: ResettableTable[] = [
       )`,
     indexes: [
       { name: 'idx_fetch_log_user_date', sql: 'CREATE INDEX idx_fetch_log_user_date ON fetch_log(user_id, fetch_date)' },
+      { name: 'idx_fetch_log_user_date_status', sql: 'CREATE INDEX idx_fetch_log_user_date_status ON fetch_log(user_id, fetch_date, status)' },
+      { name: 'idx_fetch_log_user_type_status', sql: 'CREATE INDEX idx_fetch_log_user_type_status ON fetch_log(user_id, fetch_type, status, fetched_at)' },
     ],
   },
   {
@@ -1050,6 +1101,7 @@ const SEASON_RESET_TABLES: ResettableTable[] = [
     indexes: [
       { name: 'idx_breakdown_user_kind', sql: 'CREATE INDEX idx_breakdown_user_kind ON user_stat_breakdown(user_id, kind)' },
       { name: 'idx_breakdown_user_date', sql: 'CREATE INDEX idx_breakdown_user_date ON user_stat_breakdown(user_id, date)' },
+      { name: 'idx_breakdown_user_kind_name', sql: 'CREATE INDEX idx_breakdown_user_kind_name ON user_stat_breakdown(user_id, kind, name, seconds)' },
     ],
   },
   {
@@ -1099,6 +1151,8 @@ const SEASON_RESET_TABLES: ResettableTable[] = [
     indexes: [
       { name: 'idx_leaderboard_history_period_metric_rank', sql: 'CREATE INDEX idx_leaderboard_history_period_metric_rank ON leaderboard_history(period, metric, rank)' },
       { name: 'idx_leaderboard_history_period_metric_start', sql: 'CREATE INDEX idx_leaderboard_history_period_metric_start ON leaderboard_history(period, metric, period_start)' },
+      { name: 'idx_leaderboard_history_rank_cover', sql: 'CREATE INDEX idx_leaderboard_history_rank_cover ON leaderboard_history(period, metric, rank, value, user_id, period_start)' },
+      { name: 'idx_leaderboard_history_start_cover', sql: 'CREATE INDEX idx_leaderboard_history_start_cover ON leaderboard_history(period, metric, period_start, user_id, rank, value)' },
     ],
   },
 ];
@@ -1374,8 +1428,11 @@ async function getCardMetricsForAllUsers(env: Env, scope: CardScope, today: stri
         user_id: number; date: string; total_seconds: number; human_seconds: number; ai_seconds: number; ai_lines: number; human_lines: number;
       }>()
     )),
+    // Pre-aggregate per (user, kind, name) in SQL: the raw table holds one
+    // row per user per day per name (users x days x names), but downstream
+    // only needs lifetime totals per name. Ships ~days-fold fewer rows.
     Promise.all(breakdownTables.map((t) =>
-      env.DB.prepare(`SELECT user_id, kind, name, seconds FROM ${t} WHERE kind IN ('project','language','editor','os')`).all<{
+      env.DB.prepare(`SELECT user_id, kind, name, SUM(seconds) as seconds FROM ${t} WHERE kind IN ('project','language','editor','os') GROUP BY user_id, kind, name`).all<{
         user_id: number; kind: string; name: string; seconds: number;
       }>()
     )),
