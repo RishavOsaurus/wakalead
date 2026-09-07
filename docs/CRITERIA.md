@@ -86,11 +86,14 @@ Each past season crowns one champion from its frozen
 - **Points**: each active day (`value > 0`) pays F1-style points by rank -
   25/18/15/12/10/8/6/4/2/1 for ranks 1-10, nothing beyond. Dead days
   (everyone at zero) pay nobody.
-- **Own-window rate**: score = `points / own window days`, where your window
-  runs from your join date (or season start, whichever is later) to season
-  end. A rate, not a total - early joiners can't coast on accumulated days,
-  late joiners aren't locked out.
-- **Qualifier**: 7+ active days AND active on half of your own window.
+- **Own-window rate with consistency**: score = `points x activeDays /
+  windowDays^2`, where your window runs from your join date (or season
+  start, whichever is later) to season end. A rate, not a total - early
+  joiners can't coast on accumulated days, late joiners aren't locked out -
+  and each idle day dilutes twice (once in the rate, once in the share), so
+  steady drivers outscore boom-bust ones on equal points. Uniform patterns
+  like weekends off scale everyone alike.
+- **Qualifier**: 7+ active days AND active on 55% of your own window.
   Tourists and 2-day cameos can't take the title; anyone with a few real
   weeks in the season can.
 - **Tiebreak**: more total points, then more active days, then lower user
@@ -110,10 +113,10 @@ clamped to the current season. Columns:
 - **P1 / P2 / P3** - daily wins / second / third places (active days only).
 - **DNF** - synced days in your own window with zero time (capped-out days
   that dilute your average; cron gaps you never synced don't count).
-- **Avg** - points per own-window day, the number that decides the title.
+- **Avg** - title score (points/day × active share - idleness dilutes twice).
 - **Q** - title-qualified (7+ active days, 50% of own window).
 
-Ordered by Avg (then Pts, active days, user id) - P1 here takes the crown
+Ordered by title score (then Pts, active days, user id) - P1 here takes the crown
 if the season ended today.
 
 ## Position

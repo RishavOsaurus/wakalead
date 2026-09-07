@@ -1572,7 +1572,7 @@ function assignPosition(attrs: Pick<UserCardAttributes, 'pac' | 'sho' | 'pas' | 
 /** F1-style daily points by rank - ranks beyond 10 score nothing. Dead days (value 0) pay nothing to anyone. */
 const CHAMPION_POINTS_BY_RANK = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 const CHAMPION_MIN_ACTIVE_DAYS = 7; // qualifier floor: tourists can't take a title on a 2-day cameo
-const CHAMPION_MIN_WINDOW_SHARE = 0.5; // ... of the user's OWN window (join date -> season end), so late joiners aren't locked out
+const CHAMPION_MIN_WINDOW_SHARE = 0.55; // ... of the user's OWN window (join date -> season end), so late joiners aren't locked out
 
 /** YYYY-MM-DD in app (Nepal) timezone for a ms timestamp. */
 function nepalDateStr(ts: number): string {
@@ -1586,14 +1586,27 @@ function windowDaysBetween(start: string, end: string): number {
   return ms < 0 ? 0 : Math.floor(ms / 86400000) + 1;
 }
 
+/** Title score: points-per-day scaled by active share (0 when the window is empty). */
+function titleScore(points: number, activeDays: number, windowDays: number): number {
+  if (windowDays <= 0) return 0;
+  return (points / windowDays) * (activeDays / windowDays);
+}
+
 /**
  * Per-user count of past seasons they were champion of. Champion = best
- * F1-points-per-day among qualifiers, judged on each user's OWN window
- * (their join date, or season start if they joined earlier, through season
- * end) - a rate, not a total, so early joiners can't coast on accumulated
- * days and late joiners aren't structurally excluded. Qualifier: 7+ active
- * days AND active on half of their own window. Ties: more total points,
- * then more active days, then lower user id (deterministic).
+ * title score among qualifiers (see titleScore below), judged on each
+ * user's OWN window (their join date, or season start if they joined
+ * earlier, through season end) - a rate, not a total, so early joiners
+ * can't coast on accumulated days and late joiners aren't structurally
+ * excluded. Qualifier: 7+ active days AND active on 55% of their own
+ * window. Ties: more total points, then more active days, then lower
+ * user id (deterministic).
+ *
+ * Title score = points-per-day scaled by active share
+ * (points x activeDays / windowDays^2). Each idle day dilutes twice - once
+ * in the rate, once in the share - so steady drivers outscore boom-bust
+ * ones on equal points. Uniform patterns (e.g. weekends off) scale
+ * everyone alike, so only idleness beyond the norm gets punished.
  */
 async function getSeasonChampionCounts(env: Env): Promise<Map<number, number>> {
   const currentSeason = await getCurrentSeason(env);
@@ -1636,7 +1649,7 @@ async function getSeasonChampionCounts(env: Env): Promise<Map<number, number>> {
         const active = row.active_days || 0;
         const points = row.points || 0;
         if (active < CHAMPION_MIN_ACTIVE_DAYS || active < windowDays * CHAMPION_MIN_WINDOW_SHARE) continue;
-        const score = points / windowDays;
+        const score = titleScore(points, active, windowDays);
         const better = champion === null
           || score > bestScore
           || (score === bestScore && (points > bestPoints
@@ -1664,7 +1677,7 @@ export interface SeasonStanding {
   display_name: string | null;
   photo_url: string | null;
   points: number;
-  avg: number; // points per own-window day (the title metric)
+  avg: number; // title score (points x consistency, see titleScore)
   wins: number; // daily P1s
   seconds: number; // daily P2s
   thirds: number; // daily P3s
@@ -1686,9 +1699,9 @@ export interface SeasonStandingsResult {
 /**
  * Live F1-style drivers' table for the current season - the title race as
  * it stands today. Same scoring as the frozen-season champion
- * (F1 points per own-window day, same qualifier), computed over the live
- * tables clamped to the current season. Ordered by title metric, so pos 1
- * here is who would take the crown if the season ended today.
+ * (titleScore, same qualifier), computed over the live tables clamped to
+ * the current season. Ordered by title metric, so pos 1 here is who would
+ * take the crown if the season ended today.
  */
 export async function getSeasonStandings(env: Env, today: string): Promise<SeasonStandingsResult> {
   const [season, startDate] = await Promise.all([getCurrentSeason(env), getCurrentSeasonStartDate(env)]);
@@ -1746,7 +1759,7 @@ export async function getSeasonStandings(env: Env, today: string): Promise<Seaso
       }
     }
 
-    const score = windowDays > 0 ? points / windowDays : 0;
+    const score = titleScore(points, active, windowDays);
     entries.push({
       pos: 0,
       user_id: u.id,

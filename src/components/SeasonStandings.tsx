@@ -79,7 +79,7 @@ export function SeasonStandings() {
                     <th className="text-right font-semibold py-2 px-2" title="Daily P2 finishes">P2</th>
                     <th className="text-right font-semibold py-2 px-2" title="Daily P3 finishes">P3</th>
                     <th className="text-right font-semibold py-2 px-2" title="Synced days with zero time">DNF</th>
-                    <th className="text-right font-semibold py-2 px-2" title="Points per day in own window (the title metric)">Avg</th>
+                    <th className="text-right font-semibold py-2 px-2" title="Title score: points per day × active share (rewards consistency)">Avg</th>
                     <th className="text-right font-semibold py-2 pl-2 w-10" title="Title-qualified: 7+ active days, 50% of own window">Q</th>
                   </tr>
                 </thead>
@@ -152,7 +152,7 @@ export function SeasonStandings() {
             </div>
             <p className="mt-3 text-[11px] text-slate-400 dark:text-zinc-600">
               Pts = F1 points per daily rank · P1/P2/P3 = daily podiums · DNF = synced day with zero
-              time · Avg = points per day in your own window (decides the title) · Q =
+              time · Avg = title score (points/day × active share - idleness dilutes twice) · Q =
               title-qualified.
             </p>
           </>
